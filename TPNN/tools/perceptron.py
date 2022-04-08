@@ -25,7 +25,7 @@ class Layer(object):
         assert neuron_count > 0
 
         self.neuron_count = neuron_count  # count of neurons in layer
-        self.activations = np.zeros(neuron_count)  # fill activations with zeroes
+        self.activations = np.array([np.zeros(neuron_count)])  # fill activations with zeroes
         self.act_function = act_function
         self.weights = None  # weight matrix (Wij - weigh from i'th neuron of k-1 layer to
         ## j-th neuron of k layer)
@@ -40,6 +40,22 @@ class Layer(object):
         shape = len(biases)
         assert shape == self.neuron_count and "invalid bias array shape - " + str(shape)
         self.biases = biases
+
+    def print_layer_config(self):
+        print(" size=" + str(self.neuron_count))
+        print(" act_function=" + str(self.act_function))
+        print(" activations=" + str(self.activations))
+        print(" weights:")
+        if self.weights is None:
+            print("     empty", end='')
+        else:
+            for line in self.weights:
+                print("     |", end='')
+                for item in line:
+                    print(str(item) + " ", end='')
+                print("|")
+        print()
+        print("--------------------------")
 
 
 class Net(object):
@@ -62,14 +78,14 @@ class Net(object):
 
     def init_weights(self, layer_idx, weights):
         assert 0 < layer_idx < self.layers_count and "index is out of layer's bounds - " + str(layer_idx)
-        assert weights.shape[1] == len(self.layers[layer_idx]) and \
-               weights.shape[0] == len(self.layers[layer_idx - 1]) and \
+        assert weights.shape[1] == self.layers[layer_idx].neuron_count and \
+               weights.shape[0] == self.layers[layer_idx - 1].neuron_count and \
                "invalid shape weights matrix shape - " + str(weights.shape)
         self.layers[layer_idx].set_weights(weights)
 
     def init_biases(self, layer_idx: int, biases):
         bias_length = len(biases)
-        assert bias_length == len(self.layers[layer_idx]) and "invalid bias vector size - " + str()
+        assert bias_length == self.layers[layer_idx].neuron_count and "invalid bias vector size - " + str()
 
     def calc_output(self, input_data):
         first_layer = self.layers[0]
@@ -77,7 +93,7 @@ class Net(object):
 
         # set activations of the first layer to input data
         for i in range(first_layer.neuron_count):
-            first_layer.activations[i] = input_data[i]
+            first_layer.activations[0][i] = input_data[i]
 
         # calc activations on each layer
         for i in range(self.layers_count - 1):
@@ -86,9 +102,18 @@ class Net(object):
             prev_layer = self.layers[idx - 1]
 
             w_matrix = cur_layer.weights
-            prev_layer_activations = prev_layer
+            prev_layer_activations = prev_layer.activations
 
-            z = np.matmul(w_matrix.transpose(), prev_layer_activations) + cur_layer.biases
+            z = np.matmul(w_matrix.transpose(), prev_layer_activations.transpose()) + cur_layer.biases
             self.layers[idx].activations = np.apply_along_axis(cur_layer.act_function, 0, z)
         # output is last layer's activations:
         return self.layers[self.layers_count - 1].activations
+
+    def print_net_config(self):
+        print("layers=" + str(self.layers_count))
+
+        i = 0
+        for layer in self.layers:
+            print("[" + str(i) + "]")
+            layer.print_layer_config()
+            i += 1
