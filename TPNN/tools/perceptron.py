@@ -109,7 +109,7 @@ class Net(object):
         assert 0 <= idx <= self.layers_count and "invalid insert layer idx - " + str(idx)
 
         if idx != self.layers_count:  # clear weights of behind layer
-            self.clear_weights(idx + 1)
+            self.clear_weights(idx)
         self.layers.insert(idx, Layer(layer_size, act_function))
         self.layers_count += 1
 
@@ -161,7 +161,8 @@ class Net(object):
 
         for i in range(next_layer.neuron_count):
             item = next_layer_act_der[i]
-            result += (item * get_der(next_layer.act_function)(next_layer.z_array[0][i]) * next_layer.weights[neuron_idx][i])
+            result += (item * get_der(next_layer.act_function)(next_layer.z_array[0][i]) *
+                       next_layer.weights[neuron_idx][i])
 
         return result
 
@@ -172,7 +173,8 @@ class Net(object):
         cur_layer = self.layers[layer_idx]
         prev_layer = self.layers[layer_idx - 1]
 
-        return cost_act_der_value * get_der(cur_layer.act_function)(cur_layer.z_array[0][j]) * prev_layer.activations[0][i]
+        return cost_act_der_value * get_der(cur_layer.act_function)(cur_layer.z_array[0][j]) * \
+               prev_layer.activations[0][i]
 
     # derivative of cost function on bias
     def der_cost_bias(self, layer_idx, neuron_idx, cost_act_der_value):
