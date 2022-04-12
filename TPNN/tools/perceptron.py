@@ -60,12 +60,12 @@ class Layer(object):
         assert neuron_count > 0
 
         self.neuron_count = neuron_count  # count of neurons in layer
-        self.activations = np.array([np.zeros(neuron_count)])  # fill activations with zeroes
+        self.activations = np.array([np.zeros(neuron_count)])  # fill activations with zeros
         self.z_array = np.array([np.zeros(neuron_count)])
         self.act_function = act_function
         self.weights = None  # weight matrix (Wij - weigh from i'th neuron of k-1 layer to
         ## j-th neuron of k layer)
-        self.biases = np.array([np.zeros(neuron_count)])  # fill bias array with zeroes
+        self.biases = np.array([np.zeros(neuron_count)])  # fill bias array with zeros
 
     def set_weights(self, weight_matrix):
         shape = weight_matrix.shape[1]
@@ -161,24 +161,25 @@ class Net(object):
 
         for i in range(next_layer.neuron_count):
             item = next_layer_act_der[i]
-            result += (item * get_der(next_layer.act_function)(next_layer.zarray[i]) * next_layer.weights[neuron_idx][i])
+            result += (item * get_der(next_layer.act_function)(next_layer.z_array[0][i]) * next_layer.weights[neuron_idx][i])
 
         return result
 
     # derivative of const function on weigh
     def der_cost_weigh(self, layer_idx, i, j, cost_act_der_value):
         assert 0 < layer_idx < self.layers_count
+
         cur_layer = self.layers[layer_idx]
         prev_layer = self.layers[layer_idx - 1]
 
-        return cost_act_der_value * get_der(cur_layer.act_function)(cur_layer.z_array[j]) * prev_layer.activations[i]
+        return cost_act_der_value * get_der(cur_layer.act_function)(cur_layer.z_array[0][j]) * prev_layer.activations[0][i]
 
     # derivative of cost function on bias
     def der_cost_bias(self, layer_idx, neuron_idx, cost_act_der_value):
         assert 0 < layer_idx < self.layers_count
         cur_layer = self.layers[layer_idx]
 
-        return cost_act_der_value * get_der(cur_layer.act_function)(cur_layer.z_array[neuron_idx])
+        return cost_act_der_value * get_der(cur_layer.act_function)(cur_layer.z_array[0][neuron_idx])
 
     # --------------------#
     # other methods:
