@@ -12,7 +12,7 @@ def sigmoid(x):
 
 
 def th(x):
-    return (np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x))
+    return np.tanh(x)
 
 
 def ELU(x, alpha):
