@@ -1,5 +1,8 @@
+import math
+
 import numpy as np
 import numpy.linalg as la
+from math import sqrt
 
 
 # activation functions
@@ -193,6 +196,45 @@ class Net(object):
             print("[" + str(i) + "]")
             layer.print_layer_config()
             i += 1
+
+
+def get_norm(weights_array, biases_array):
+    value = 0
+
+    for matrix in weights_array:
+        item = la.norm(matrix) ** 2
+        value += item
+
+    for vector in biases_array:
+        item = la.norm(vector) ** 2
+        value += item
+    return sqrt(value)
+
+
+class Adam(object):
+    def __init__(self):
+        self.betta1 = 0.9
+        self.betta2 = 0.99
+        self.m_prev = 0
+        self.v_prev = 0
+        self.step = 1
+        self.epsilon = 0.000001
+
+    def get_next_coefficient(self, weights_array, biases_array):
+        grad_norm = get_norm(weights_array, biases_array)
+        m_cur = (self.m_prev * self.betta1 + (1 - self.betta1) * grad_norm)
+        v_cur = (self.v_prev * self.betta2 + (1 - self.betta2) * (grad_norm ** 2))
+
+        self.step += 1
+        self.m_prev = m_cur
+        self.v_prev = v_cur
+
+        arg1 = self.m_prev / (1 - self.betta1 ** self.step)
+        arg2 = self.v_prev / (1 - self.betta2 ** self.step)
+
+        result = arg1 / math.sqrt(arg2 + self.epsilon)
+
+        return result
 
 
 def predict_error(out, target):
