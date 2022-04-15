@@ -222,8 +222,10 @@ class Adam(object):
 
     def get_next_coefficient(self, weights_array, biases_array):
         grad_norm = get_norm(weights_array, biases_array)
-        m_cur = (self.m_prev * self.betta1 + (1 - self.betta1) * grad_norm)
-        v_cur = (self.v_prev * self.betta2 + (1 - self.betta2) * (grad_norm ** 2))
+        assert grad_norm >= 0
+
+        m_cur = self.m_prev * self.betta1 + (1 - self.betta1) * grad_norm
+        v_cur = self.v_prev * self.betta2 + (1 - self.betta2) * (grad_norm ** 2)
 
         self.step += 1
         self.m_prev = m_cur
