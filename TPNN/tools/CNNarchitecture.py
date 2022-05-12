@@ -22,8 +22,8 @@ class CNNlayer(Layer):
         # check core and input shapes
         assert len(in_shape) == 3 and "invalid input shape, should be a 3D-shape"
         assert len(cores_shape) == 2 and "invalid core's shape"
-        assert in_shape[1] >= cores_shape[0] and in_shape[2] >= cores_shape[
-            1] and "core shape is out of input shape's bounds"
+        assert in_shape[1] >= cores_shape[0] and in_shape[2] >= cores_shape[1]\
+               and "core shape is out of input shape's bounds"
 
         self.stride = stride
         in_width = in_shape[2]
@@ -33,6 +33,7 @@ class CNNlayer(Layer):
         core_height = cores_shape[0]
 
         self.output_shape = (cores_count, (in_height - core_height) / stride + 1, (in_width - core_width) / stride + 1)
+        self.output = np.zeros(self.output_shape)
 
         # init weights in cores and biases in [-1,1] interval
         self.cores = np.random.rand(cores_count, cores_shape[0], cores_shape[1]) * 2 - 1
@@ -61,7 +62,6 @@ class CNNlayer(Layer):
         assert len(input.shape) == 3 and "input shape should have 3 dimensions"
 
         map_count = input.shape[0]  # count of attribute's map
-        output = np.zeros(self.output_shape)
 
         # accept each filter to all attribute maps and concatenate the result
         for core_idx in range(len(self.cores)):
@@ -69,9 +69,9 @@ class CNNlayer(Layer):
 
             for map_idx in range(map_count):
                 result_map += self.accept_filter(core_idx, input[map_idx])
-            output[core_idx] = result_map
+            self.output[core_idx] = result_map
 
-        return output
+        return self.output
 
 
 class MaxPoolingLayer(Layer):
@@ -86,7 +86,48 @@ class MaxPoolingLayer(Layer):
         in_height = in_shape[1]
         core_width = core_shape[1]
         core_height = core_shape[0]
+        self.core_shape = core_shape
         self.output_shape = (in_shape[0], in_width / core_width, in_height / core_height)
+        self.input_maximums_positions = np.zeros(core_width * core_height, 2)  # list of max cells coordinates (need for back propagation)
+        self.output = np.zeros(self.output_shape)
+
+    def accept_pooling(self, image):
+        iteration = 0
+        output = np.zeros(self.output_shape)
+
+        for i in range(self.output_shape[1]):
+            for j in range(self.output_shape[2]):
+                angle_x = j * self.core_shape[1]
+                angle_y = i * self.core_shape[0]
+
+                cur_max_pos = None
+                cur_max_value = -100000000
+
+                # get max item from the region bounded by the core:
+                for core_y in range(self.core_shape[0]):
+                    for core_x in range(self.core_shape[1]):
+                        cur_pixel_value = image[angle_y + core_y][angle_x + core_x]
+
+                        if cur_max_value < cur_pixel_value:
+                            cur_max_value = cur_pixel_value
+                            cur_max_pos = [angle_y + core_y, angle_x + core_x]
+
+                self.input_maximums_positions[iteration] = cur_max_pos
+                iteration += 1
+                output[i][j] = cur_max_value
+
+        return output
+
+    def get_output(self, input):
+        assert input.shape == self.input_shape and "input shape doesn't match with layer input shape"
+        assert len(input.shape) == 3 and "input shape should have 3 dimensions"
+
+        map_count = input.shape[0]
+
+        for map_idx in range(map_count):
+            self.output[map_idx] = self.accept_pooling(input[map_idx])
+
+        return self.output
 
 
 class DenseLayer(Layer):
