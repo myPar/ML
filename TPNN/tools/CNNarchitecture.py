@@ -234,6 +234,14 @@ class Net(object):
             input = layer.get_output(input)
         return input
 
+    def print_config(self):
+        print("Layers count: " + str(self.layer_count))
+        print("layers configuration: ")
+        print()
+
+        for layer in self.layers:
+            layer.print_config()
+
 
 def get_size(sh: tuple):
     result = 1
