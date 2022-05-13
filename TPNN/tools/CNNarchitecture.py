@@ -131,6 +131,19 @@ class MaxPoolingLayer(Layer):
 
 
 class DenseLayer(Layer):
-    def __init__(self, activation_f, neuron_count):
+    def __init__(self, activation_f, neuron_count, prev_layer_neuron_count):
         super().__init__((neuron_count,), activation_f)
         self.output_shape = (neuron_count,)
+        self.input_shape = (prev_layer_neuron_count,)
+        # init weighs matrix (Wij) - i - idx of neuron from prev layer j - idx of neuron form cur layer
+        self.weights_matrix = np.random.rand((prev_layer_neuron_count, neuron_count)) * 2 - 1
+        self.biases_vector = np.random.rand((neuron_count, 1)) # vector-column of biases
+
+    def get_output(self, input):
+        assert len(input.shape) == 1 and "invalid input shape, should be 1-d array"
+        assert input.shape == self.input_shape and "input data shape doesn't match with laler's shape"
+
+        z_array = np.matmul(self.weights_matrix.transpose(), np.array([input])) + self.biases_vector
+        assert z_array.shape == (self.output_shape[0], 1) and "invalid output vecor shape"
+
+        return np.apply_along_axis(self.activation_function, 0, z_array).reshape(self.output_shape)
