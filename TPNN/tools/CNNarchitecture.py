@@ -38,7 +38,7 @@ class CNNlayer(Layer):
         core_width = cores_shape[1]
         core_height = cores_shape[0]
 
-        self.output_shape = (cores_count, (in_height - core_height) / stride + 1, (in_width - core_width) / stride + 1)
+        self.output_shape = (cores_count, (in_height - core_height) // stride + 1, (in_width - core_width) // stride + 1)
         self.output = np.zeros(self.output_shape)
 
         # init weights in cores and biases in [-1,1] interval
@@ -46,7 +46,7 @@ class CNNlayer(Layer):
         self.biases = np.random.rand(cores_count) * 2 - 1
 
     def accept_filter(self, core_idx, image):
-        output_map = np.zeros(self.output_shape[0], self.output_shape[1])
+        output_map = np.zeros((self.output_shape[1], self.output_shape[2]))
         filter_core = self.cores[core_idx]
 
         for i in range(self.output_shape[0]):
@@ -71,13 +71,22 @@ class CNNlayer(Layer):
 
         # accept each filter to all attribute maps and concatenate the result
         for core_idx in range(len(self.cores)):
-            result_map = np.zeros(self.output_shape[1], self.output_shape[2])
+            result_map = np.zeros((self.output_shape[1], self.output_shape[2]))
 
             for map_idx in range(map_count):
                 result_map += self.accept_filter(core_idx, input[map_idx])
             self.output[core_idx] = result_map
 
         return self.output
+
+    def set_cores(self, cores):
+        assert len(cores) == len(self.cores) and "invalid core's count"
+        assert cores[0].shape == self.cores[0].shape and "invalid core's shape"
+        self.cores = cores
+
+    def set_biases(self, biases):
+        assert self.biases.shape == biases.shape and "invalid biases shape"
+        self.biases = biases
 
     def print_config(self):
         print("CNN layer:")
@@ -87,6 +96,9 @@ class CNNlayer(Layer):
         for i in range(len(self.cores)):
             print("[" + str(i) + "]:")
             print_matrix(self.cores[i])
+
+        print(" biases: ")
+        print_vector(self.biases)
 
 
 class MaxPoolingLayer(Layer):
@@ -102,13 +114,15 @@ class MaxPoolingLayer(Layer):
         core_width = core_shape[1]
         core_height = core_shape[0]
         self.core_shape = core_shape
-        self.output_shape = (in_shape[0], in_width / core_width, in_height / core_height)
-        self.input_maximums_positions = np.zeros(core_width * core_height, 2)  # list of max cells coordinates (need for back propagation)
+        self.output_shape = (in_shape[0], in_height // core_height, in_width // core_width)
+
+        # list of max cells coordinates (need for back propagation):
+        self.input_maximums_positions = np.zeros((self.output_shape[0], self.output_shape[1] * self.output_shape[2], 2))
         self.output = np.zeros(self.output_shape)
 
-    def accept_pooling(self, image):
+    def accept_pooling(self, image, map_idx):
         iteration = 0
-        output = np.zeros(self.output_shape)
+        output = np.zeros((self.output_shape[1], self.output_shape[2]))
 
         for i in range(self.output_shape[1]):
             for j in range(self.output_shape[2]):
@@ -127,7 +141,7 @@ class MaxPoolingLayer(Layer):
                             cur_max_value = cur_pixel_value
                             cur_max_pos = [angle_y + core_y, angle_x + core_x]
 
-                self.input_maximums_positions[iteration] = cur_max_pos
+                self.input_maximums_positions[map_idx][iteration] = cur_max_pos
                 iteration += 1
                 output[i][j] = cur_max_value
 
@@ -140,7 +154,7 @@ class MaxPoolingLayer(Layer):
         map_count = input.shape[0]
 
         for map_idx in range(map_count):
-            self.output[map_idx] = self.accept_pooling(input[map_idx])
+            self.output[map_idx] = self.accept_pooling(input[map_idx], map_idx)
 
         return self.output
 
@@ -157,19 +171,23 @@ class DenseLayer(Layer):
         self.input_shape = (prev_layer_neuron_count,)
         self.neuron_count = neuron_count
         # init weighs matrix (Wij) - i - idx of neuron from prev layer j - idx of neuron form cur layer
-        self.weights_matrix = np.random.rand((prev_layer_neuron_count, neuron_count)) * 2 - 1
-        self.biases_vector = np.random.rand((neuron_count, 1)) # vector-column of biases
+        self.weights_matrix = np.random.rand(prev_layer_neuron_count, neuron_count) * 2 - 1
+        self.biases = np.random.rand(neuron_count, 1) # vector-column of biases
 
     def set_weighs(self, weight_matrix):
-        assert weight_matrix.shape == (self.input_shape, self.output_shape) and "invalid weight matrix shape"
+        assert weight_matrix.shape == (self.input_shape[0], self.output_shape[0]) and "invalid weight matrix shape"
         self.weights_matrix = weight_matrix
+
+    def set_biases(self, biases):
+        assert biases.shape == self.biases.shape and "invalid biases vector shape"
+        self.biases = biases
 
     def get_output(self, input):
         assert len(input.shape) == 1 and "invalid input shape, should be 1-d array"
         assert input.shape == self.input_shape and "input data shape doesn't match with laler's shape"
 
-        z_array = np.matmul(self.weights_matrix.transpose(), np.array([input])) + self.biases_vector
-        assert z_array.shape == (self.output_shape[0], 1) and "invalid output vecor shape"
+        z_array = np.matmul(self.weights_matrix.transpose(), np.array([input]).transpose()) + self.biases
+        assert z_array.shape == (self.output_shape[0], 1) and "invalid output vector shape"
 
         return np.apply_along_axis(self.activation_function, 0, z_array).reshape(self.output_shape)
 
@@ -180,24 +198,22 @@ class DenseLayer(Layer):
         print(" weight matrix:")
         print_matrix(self.weights_matrix)
         print(" biases vector: ")
-        print_vector(self.biases_vector)
+        print_vector(self.biases)
 
 
 # concatenate attribute's maps and reshape it. To apply it in Dense layer input
 class ReformatLayer(Layer):
-    def __init__(self, input_shape, output_shape):
+    def __init__(self, input_shape):
         assert len(input_shape) == 3 and "invalid input shape, should be a 3d"
         super().__init__(input_shape, None)
-        self.output_shape = output_shape
 
         map_shape = (input_shape[1], input_shape[2])
-        assert get_size(map_shape) == get_size(output_shape) and "can't reformat data of shape " \
-               + str(map_shape) + " to shape " + str(output_shape)
+        self.output_shape = (get_size(map_shape), )
 
     def get_output(self, input):
         assert input.shape == self.input_shape and "invalid input data shape"
         # concatenate attribute's maps
-        result_map = np.zeros(input.shape[1], input.shape[2])
+        result_map = np.zeros((input.shape[1], input.shape[2]))
 
         for cur_map in input:
             result_map += cur_map
@@ -219,12 +235,11 @@ class Net(object):
         return self.layers[self.layer_count - 1]
 
     def add_layer(self, layer: Layer):
-        if self.layer_count == 0:
-            self.layers.append(layer)
-        else:
+        if self.layer_count > 0:
             # layer's compatibility check
             last_layer = self.get_last_layer()
             assert last_layer.output_shape == layer.input_shape and "layer shapes are incompatible"
+        self.layers.append(layer)
         self.layer_count += 1
 
     def get_output(self, input_data):
@@ -241,6 +256,7 @@ class Net(object):
 
         for layer in self.layers:
             layer.print_config()
+            print()
 
 
 def get_size(sh: tuple):
@@ -263,9 +279,12 @@ def print_matrix(matrix):
 
 
 def print_vector(vector):
-    assert len(vector.shape) == 1
+    dim_count = len(vector.shape)
+    assert dim_count == 1 or dim_count == 2 and "should be a vector-column or a vector-row or 1-d vector"
 
     print("     ", end='')
-    for i in vector:
-        print(str(i) + " ")
+    display_vector = vector.reshape((get_size(vector.shape), ))
+
+    for i in display_vector:
+        print(str(i) + " ", end='')
     print()

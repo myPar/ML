@@ -1,5 +1,6 @@
 import numpy as np
 
+
 # activation functions
 def ident(x):
     return x
