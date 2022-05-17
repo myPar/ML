@@ -1,4 +1,5 @@
 import numpy as np
+from TPNN.tools.activation_functions import *
 
 
 # base layer class
@@ -8,6 +9,7 @@ class Layer(object):
         self.output_shape = None  # shape of one unit of output data
         self.x_derivatives_array = None
         self.activation_function = activation_f
+        self.input = None
 
     def set_x_der_array(self, der_array):
         self.x_derivatives_array = der_array
@@ -28,7 +30,7 @@ class CNNlayer(Layer):
         # check core and input shapes
         assert len(in_shape) == 3 and "invalid input shape, should be a 3D-shape"
         assert len(cores_shape) == 2 and "invalid core's shape"
-        assert in_shape[1] >= cores_shape[0] and in_shape[2] >= cores_shape[1]\
+        assert in_shape[1] >= cores_shape[0] and in_shape[2] >= cores_shape[1] \
                and "core shape is out of input shape's bounds"
 
         self.stride = stride
@@ -38,12 +40,17 @@ class CNNlayer(Layer):
         core_width = cores_shape[1]
         core_height = cores_shape[0]
 
-        self.output_shape = (cores_count, (in_height - core_height) // stride + 1, (in_width - core_width) // stride + 1)
+        self.output_shape = (
+            cores_count, (in_height - core_height) // stride + 1, (in_width - core_width) // stride + 1)
         self.output = np.zeros(self.output_shape)
+        self.z_array = np.zeros(self.output_shape)
 
         # init weights in cores and biases in [-1,1] interval
         self.cores = np.random.rand(cores_count, cores_shape[0], cores_shape[1]) * 2 - 1
         self.biases = np.random.rand(cores_count) * 2 - 1
+
+        # derivatives fields:
+        self.cores_weights_derivatives = np.zeros(self.cores.shape)
 
     def accept_filter(self, core_idx, image):
         output_map = np.zeros((self.output_shape[1], self.output_shape[2]))
@@ -59,14 +66,15 @@ class CNNlayer(Layer):
                 for core_y in range(filter_core.shape[0]):
                     for core_x in range(filter_core.shape[1]):
                         z += filter_core[core_y][core_x] * image[angle_y + core_y][angle_x + core_x]
-                output_map[i][j] = self.activation_function(z + self.biases[core_idx])
+                output_map[i][j] = z
 
         return output_map
 
     def get_output(self, input):
         assert input.shape == self.input_shape and "input shape doesn't match with layer input shape"
         assert len(input.shape) == 3 and "input shape should have 3 dimensions"
-
+        self.input = input  # cache input data
+        self.z_array = np.zeros(self.output_shape)  # reset z-array
         map_count = input.shape[0]  # count of attribute's map
 
         # accept each filter to all attribute maps and concatenate the result
@@ -75,7 +83,8 @@ class CNNlayer(Layer):
 
             for map_idx in range(map_count):
                 result_map += self.accept_filter(core_idx, input[map_idx])
-            self.output[core_idx] = result_map
+            self.z_array[core_idx] = result_map + self.biases[core_idx]
+            self.output[core_idx] = np.apply_along_axis(self.activation_function, 0, self.z_array[core_idx])
 
         return self.output
 
@@ -99,6 +108,29 @@ class CNNlayer(Layer):
 
         print(" biases: ")
         print_vector(self.biases)
+
+    ##### derivatives calculation:
+    def get_der_cost_weight(self, core_x, core_y, core_idx, der_cost_result, input_act_maps):
+        result_der = 0
+
+        # sum items for each output pixel
+        for y in range(self.output_shape[1]):
+            for x in range(self.output_shape[2]):
+                z = self.z_array[core_idx][y][x]
+                term = der_cost_result[y][x] * get_sum_x_from_maps(input_act_maps, y + core_y, x + core_x) \
+                       * get_der(self.activation_function)(z)
+                result_der += term
+
+        return result_der
+
+    def der_cost_cores(self, der_cost_result):  # calc dL/dWij for each core
+        for core_idx in range(len(self.cores)):  # calc der for each core
+            core = self.cores[core_idx]
+
+            for core_y in range(len(core.shape[0])):
+                for core_x in range(len(core.shape[1])):
+                    self.cores_weights_derivatives[core_idx][core_y][core_x] = \
+                        self.get_der_cost_weight(core_x, core_y, core_idx, der_cost_result, self.input)
 
 
 class MaxPoolingLayer(Layer):
@@ -172,7 +204,7 @@ class DenseLayer(Layer):
         self.neuron_count = neuron_count
         # init weighs matrix (Wij) - i - idx of neuron from prev layer j - idx of neuron form cur layer
         self.weights_matrix = np.random.rand(prev_layer_neuron_count, neuron_count) * 2 - 1
-        self.biases = np.random.rand(neuron_count, 1) # vector-column of biases
+        self.biases = np.random.rand(neuron_count, 1)  # vector-column of biases
 
     def set_weighs(self, weight_matrix):
         assert weight_matrix.shape == (self.input_shape[0], self.output_shape[0]) and "invalid weight matrix shape"
@@ -208,7 +240,7 @@ class ReformatLayer(Layer):
         super().__init__(input_shape, None)
 
         map_shape = (input_shape[1], input_shape[2])
-        self.output_shape = (get_size(map_shape), )
+        self.output_shape = (get_size(map_shape),)
 
     def get_output(self, input):
         assert input.shape == self.input_shape and "invalid input data shape"
@@ -302,8 +334,17 @@ def print_vector(vector):
     assert dim_count == 1 or dim_count == 2 and "should be a vector-column or a vector-row or 1-d vector"
 
     print("     ", end='')
-    display_vector = vector.reshape((get_size(vector.shape), ))
+    display_vector = vector.reshape((get_size(vector.shape),))
 
     for i in display_vector:
         print(str(i) + " ", end='')
     print()
+
+
+def get_sum_x_from_maps(maps, y, x):
+    result = 0
+
+    for map in maps:
+        result += map[y][x]
+
+    return result
