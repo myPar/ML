@@ -225,6 +225,25 @@ class ReformatLayer(Layer):
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
 
 
+class SoftmaxLayer(Layer):
+    def __init__(self, neuron_count):
+        super().__init__((neuron_count,), None)
+        self.neuron_count = neuron_count
+        self.output_shape = (neuron_count,)
+
+    def get_output(self, input):
+        assert len(input.shape) == 1 and "should be 1d vector"
+        assert len(input) == self.neuron_count and "invalid input items count"
+
+        denominator = np.sum(np.exp(input))
+
+        return np.array([np.exp(input[i]) / denominator for i in range(len(input))])
+
+    def print_config(self):
+        print("Softmax layer")
+        print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
+
+
 # Net as stack of layers
 class Net(object):
     def __init__(self):
