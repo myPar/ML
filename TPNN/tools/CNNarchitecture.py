@@ -40,8 +40,7 @@ class CNNlayer(Layer):
         core_width = cores_shape[1]
         core_height = cores_shape[0]
 
-        self.output_shape = (
-            cores_count, (in_height - core_height) // stride + 1, (in_width - core_width) // stride + 1)
+        self.output_shape = (cores_count, (in_height - core_height) // stride + 1, (in_width - core_width) // stride + 1)
         self.output = np.zeros(self.output_shape)
         self.z_array = np.zeros(self.output_shape)
 
@@ -131,6 +130,27 @@ class CNNlayer(Layer):
                 for core_x in range(len(core.shape[1])):
                     self.cores_weights_derivatives[core_idx][core_y][core_x] = \
                         self.get_der_cost_weight(core_x, core_y, core_idx, der_cost_result, self.input)
+
+    def get_der_cost_x(self, core_idx, input_act_map, y, x, der_cost_result):
+        left_up_point, right_down_point = get_bound_point(input_act_map.shape, self.cores[0].shape, x, y)
+        result_der = 0
+        core = self.cores[core_idx]
+
+        # 'core_y_on_map' and 'core_x_on_map' - coordinates of the left up core point on the image
+        for core_y_on_map in np.arange(left_up_point[0], right_down_point[0]):
+            for core_x_on_map in np.arange(left_up_point[1], right_down_point[1]):
+                core_y = y - core_y_on_map  # calc coordinates of weight on core which x point is collided
+                core_x = x - core_x_on_map  #
+                result_der += der_cost_result[core_y_on_map][core_x_on_map] * core[core_y][core_x]
+
+        return result_der
+
+    def der_cost_input(self, der_cost_result):
+        for input_map_idx in range(self.input.shape[0]):
+            for y in range(self.input.shape[1]):
+                for x in range(self.input.shape[2]):
+                    pass
+
 
 
 class MaxPoolingLayer(Layer):
@@ -348,3 +368,18 @@ def get_sum_x_from_maps(maps, y, x):
         result += map[y][x]
 
     return result
+
+def get_bound_point(image_shape, core_shape, point_x, point_y):
+    im_width = image_shape[1]
+    im_height = image_shape[0]
+
+    core_width = core_shape[1]
+    core_height = core_shape[0]
+
+    left_up_y = max(point_y - core_height + 1, 0)
+    left_up_x = max(point_x - core_width + 1, 0)
+
+    right_down_x = min(point_x, im_width - core_width)
+    right_down_y = min(point_y, im_height - core_height)
+
+    return (left_up_y, left_up_x), (right_down_y, right_down_x) # (y,x) notation
