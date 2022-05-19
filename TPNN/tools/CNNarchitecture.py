@@ -22,7 +22,8 @@ class Layer(object):
 
     def print_config(self):
         pass
-
+    def der_cost_input(self, der_cost_result):
+        pass
 
 class CNNlayer(Layer):
     def __init__(self, in_shape, activation_f, cores_count, cores_shape, stride):
@@ -51,7 +52,6 @@ class CNNlayer(Layer):
 
         # derivatives fields:
         self.cores_weights_derivatives = np.zeros(self.cores.shape)
-        self.input_pixels_derivatives = np.zeros(self.input_shape)
 
     def accept_filter(self, core_idx, image):
         output_map = np.zeros((self.output_shape[1], self.output_shape[2]))
@@ -159,15 +159,15 @@ class CNNlayer(Layer):
                     for core_idx in range(len(self.cores)):
                         activation_map = self.input[input_map_idx]
                         result_point_derivative += self.get_der_cost_x(core_idx, activation_map, y, x, der_cost_result)
-                    self.input_pixels_derivatives[input_map_idx][y][x] = result_point_derivative
+                    self.x_derivatives_array[input_map_idx][y][x] = result_point_derivative
 
 
 class MaxPoolingLayer(Layer):
     def __init__(self, core_shape, in_shape):
         assert len(in_shape) == 3 and "invalid input shape, should be a 3D-shape"
         assert len(core_shape) == 2 and "invalid core shape, should be a 2D-shape"
-        assert core_shape[0] <= in_shape[1] and core_shape[1] <= in_shape[
-            2] and "core shape is out of input shape's bounds"
+        assert core_shape[0] <= in_shape[1] and core_shape[1] <= in_shape[2]\
+               and "core shape is out of input shape's bounds"
 
         super().__init__(in_shape, None)
         in_width = in_shape[2]
@@ -178,17 +178,17 @@ class MaxPoolingLayer(Layer):
         self.output_shape = (in_shape[0], in_height // core_height, in_width // core_width)
 
         # list of max cells coordinates (need for back propagation):
-        self.input_maximums_positions = np.zeros((self.output_shape[0], self.output_shape[1] * self.output_shape[2], 2))
+        self.input_maximums_positions = np.zeros((self.output_shape[0], self.output_shape[1], self.output_shape[2], 2))
         self.output = np.zeros(self.output_shape)
+        self.input = None
 
     def accept_pooling(self, image, map_idx):
-        iteration = 0
         output = np.zeros((self.output_shape[1], self.output_shape[2]))
 
-        for i in range(self.output_shape[1]):
-            for j in range(self.output_shape[2]):
-                angle_x = j * self.core_shape[1]
-                angle_y = i * self.core_shape[0]
+        for y in range(self.output_shape[1]):
+            for x in range(self.output_shape[2]):
+                angle_x = x * self.core_shape[1]
+                angle_y = y * self.core_shape[0]
 
                 cur_max_pos = None
                 cur_max_value = -100000000
@@ -202,9 +202,8 @@ class MaxPoolingLayer(Layer):
                             cur_max_value = cur_pixel_value
                             cur_max_pos = [angle_y + core_y, angle_x + core_x]
 
-                self.input_maximums_positions[map_idx][iteration] = cur_max_pos
-                iteration += 1
-                output[i][j] = cur_max_value
+                self.input_maximums_positions[map_idx][y][x] = cur_max_pos
+                output[y][x] = cur_max_value
 
         return output
 
@@ -224,6 +223,18 @@ class MaxPoolingLayer(Layer):
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
         print(" core shape: " + str(self.core_shape))
 
+    #### derivatives calculation methods
+    def der_cost_input(self, der_cost_result):
+        self.x_derivatives_array = np.zeros(input(self.input.shape))
+
+        for output_map_idx in range(self.output.shape[0]):
+            for y in range(self.output.shape[1]):
+                for x in range(self.output.shape[2]):
+                    point = self.input_maximums_positions[output_map_idx][y][x]
+
+                    # tipping gradients throw polling layer:
+                    self.x_derivatives_array[output_map_idx][point[0]][point[1]] = der_cost_result[output_map_idx][y][x]
+
 
 class DenseLayer(Layer):
     def __init__(self, activation_f, neuron_count, prev_layer_neuron_count):
@@ -234,6 +245,11 @@ class DenseLayer(Layer):
         # init weighs matrix (Wij) - i - idx of neuron from prev layer j - idx of neuron form cur layer
         self.weights_matrix = np.random.rand(prev_layer_neuron_count, neuron_count) * 2 - 1
         self.biases = np.random.rand(neuron_count, 1)  # vector-column of biases
+        self.z_array = None
+
+        # derivatives fields:
+        self.weights_der_array = np.zeros(self.weights_matrix.shape)
+        self.biases_der_array = np.zeros(self.biases.shape)
 
     def set_weighs(self, weight_matrix):
         assert weight_matrix.shape == (self.input_shape[0], self.output_shape[0]) and "invalid weight matrix shape"
@@ -247,10 +263,11 @@ class DenseLayer(Layer):
         assert len(input.shape) == 1 and "invalid input shape, should be 1-d array"
         assert input.shape == self.input_shape and "input data shape doesn't match with laler's shape"
 
-        z_array = np.matmul(self.weights_matrix.transpose(), np.array([input]).transpose()) + self.biases
-        assert z_array.shape == (self.output_shape[0], 1) and "invalid output vector shape"
+        self.input = input  # cache input
+        self.z_array = np.matmul(self.weights_matrix.transpose(), np.array([input]).transpose()) + self.biases
+        assert self.z_array.shape == (self.output_shape[0], 1) and "invalid output vector shape"
 
-        return np.apply_along_axis(self.activation_function, 0, z_array).reshape(self.output_shape)
+        return np.apply_along_axis(self.activation_function, 0, self.z_array).reshape(self.output_shape)
 
     def print_config(self):
         print("Dense layer")
@@ -261,8 +278,18 @@ class DenseLayer(Layer):
         print(" biases vector: ")
         print_vector(self.biases)
 
+    ### calc derivatives methods:
+    def der_cost_weights(self, der_cost_result):
+        assert der_cost_result.shape == self.output_shape and "invalid weights der array shape"
 
-# concatenate attribute's maps and reshape it. To apply it in Dense layer input
+        for i in range(self.weights_matrix.shape[0]):
+            for j in range(self.weights_matrix.shape[1]):
+                self.weights_der_array[i][j] = der_cost_result[j] * get_der(self.activation_function)(self.z_array[j][0]) * self.input[i]
+
+    def der_cost_input(self, der_cost_result):
+        assert der_cost_result.shape == self.output_shape
+
+# flatten attribute's maps and concatenate it in one big vector. To apply it in Dense layer input
 class ReformatLayer(Layer):
     def __init__(self, input_shape):
         assert len(input_shape) == 3 and "invalid input shape, should be a 3d"
@@ -273,17 +300,24 @@ class ReformatLayer(Layer):
 
     def get_output(self, input):
         assert input.shape == self.input_shape and "invalid input data shape"
-        # concatenate attribute's maps
-        result_map = np.zeros((input.shape[1], input.shape[2]))
+        result = input.flatten()
 
-        for cur_map in input:
-            result_map += cur_map
+        # flatten attributes maps:
+        for i in range(input.shape[0] - 1):
+            map_idx = i + 1
+            cur_map = input[map_idx]
+            result = np.concatenate((result, cur_map))
 
-        return result_map.reshape(self.output_shape)
+        return result
 
     def print_config(self):
         print("Reformat layer")
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
+
+    ### calc derivatives methods:
+    def der_cost_input(self, der_cost_result):
+        assert der_cost_result.shape == self.output_shape
+        self.x_derivatives_array = der_cost_result.reshape(self.input_shape)
 
 
 class SoftmaxLayer(Layer):
