@@ -250,6 +250,7 @@ class DenseLayer(Layer):
         # derivatives fields:
         self.weights_der_array = np.zeros(self.weights_matrix.shape)
         self.biases_der_array = np.zeros(self.biases.shape)
+        self.x_derivatives_array = np.zeros(self.input_shape)
 
     def set_weighs(self, weight_matrix):
         assert weight_matrix.shape == (self.input_shape[0], self.output_shape[0]) and "invalid weight matrix shape"
@@ -278,16 +279,35 @@ class DenseLayer(Layer):
         print(" biases vector: ")
         print_vector(self.biases)
 
-    ### calc derivatives methods:
+### calc derivatives methods:
     def der_cost_weights(self, der_cost_result):
-        assert der_cost_result.shape == self.output_shape and "invalid weights der array shape"
+        assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
 
         for i in range(self.weights_matrix.shape[0]):
             for j in range(self.weights_matrix.shape[1]):
                 self.weights_der_array[i][j] = der_cost_result[j] * get_der(self.activation_function)(self.z_array[j][0]) * self.input[i]
 
     def der_cost_input(self, der_cost_result):
-        assert der_cost_result.shape == self.output_shape
+        assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
+        prev_layer_neuron_count = self.input_shape[0]
+        cur_layer_neuron_count = self.neuron_count
+
+        for prev_layer_neuron_idx in range(prev_layer_neuron_count):
+            result_der = 0
+            # each neuron from previous layer linearly affects on each neuron on current layer
+            for cur_layer_neuron_idx in range(cur_layer_neuron_count):
+                result_der += der_cost_result[cur_layer_neuron_idx] * \
+                              get_der(self.activation_function)(self.z_array[cur_layer_neuron_idx]) \
+                              * self.weights_matrix[prev_layer_neuron_idx][cur_layer_neuron_idx]
+            self.x_derivatives_array[prev_layer_neuron_idx] = result_der
+
+    def der_cost_biases(self, der_cost_result):
+        assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
+
+        for b_idx in range(len(self.biases)):
+            self.biases_der_array[b_idx][0] = der_cost_result[b_idx] * \
+                                              get_der(self.activation_function)(self.z_array[b_idx][0])
+
 
 # flatten attribute's maps and concatenate it in one big vector. To apply it in Dense layer input
 class ReformatLayer(Layer):
