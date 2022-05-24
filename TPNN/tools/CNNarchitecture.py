@@ -1,5 +1,8 @@
 import numpy as np
-from TPNN.tools.activation_functions import *
+from TPNN.tools.functions import *
+from TPNN.tools.functions import *
+from TPNN.tools.optimizers import Optimizer
+from TPNN.tools.data import *
 
 
 # base layer class
@@ -22,8 +25,23 @@ class Layer(object):
 
     def print_config(self):
         pass
-    def der_cost_input(self, der_cost_result):
+
+    def der_cost_input(self, der_cost_result):  # calculate input derivatives array and returns it
         pass
+
+    def get_x_array(self):
+        return self.x_derivatives_array
+
+    def calc_derivatives(self, arg):  # calculates all derivatives: weights, biases, inputs
+        pass  # and returns calculated x_der_array
+        # arg is either result der array (intermediate layer) or expected output vector (last layer)
+
+    def get_gradient_data(self):
+        return None
+
+    def change_parameters(self, apply_function):    # increment net parameters on delta
+        pass
+
 
 class CNNlayer(Layer):
     def __init__(self, in_shape, activation_f, cores_count, cores_shape, stride):
@@ -52,6 +70,7 @@ class CNNlayer(Layer):
 
         # derivatives fields:
         self.cores_weights_derivatives = np.zeros(self.cores.shape)
+        self.biases_derivatives = np.zeros(self.biases.shape)
 
     def accept_filter(self, core_idx, image):
         output_map = np.zeros((self.output_shape[1], self.output_shape[2]))
@@ -126,6 +145,8 @@ class CNNlayer(Layer):
         return result_der
 
     def der_cost_cores(self, der_cost_result):  # calc dL/dWij for each core
+        assert der_cost_result.shape == self.output_shape
+
         for core_idx in range(len(self.cores)):  # calc der for each core
             core = self.cores[core_idx]
 
@@ -151,6 +172,8 @@ class CNNlayer(Layer):
         return result_der
 
     def der_cost_input(self, der_cost_result):
+        assert der_cost_result.shape == self.output_shape
+
         for input_map_idx in range(self.input.shape[0]):
             for y in range(self.input.shape[1]):
                 for x in range(self.input.shape[2]):
@@ -161,12 +184,40 @@ class CNNlayer(Layer):
                         result_point_derivative += self.get_der_cost_x(core_idx, activation_map, y, x, der_cost_result)
                     self.x_derivatives_array[input_map_idx][y][x] = result_point_derivative
 
+        return self.x_derivatives_array
+
+    # calc biases derivatives:
+    def der_cost_biases(self, der_cost_result):
+        assert der_cost_result.shape == self.output_shape
+
+        # biase has linear influence on each pixel of output activation map
+        for biase_idx in range(len(self.biases)):
+            result_der = 0
+            for y in range(self.output_shape[0]):
+                for x in range(self.output_shape[1]):
+                    result_der += der_cost_result[biase_idx][y][x] * get_der(self.activation_function)(
+                        self.z_array[biase_idx][y][x])
+            self.biases_derivatives[biase_idx] = result_der
+
+    def calc_derivatives(self, arg):
+        self.der_cost_cores(arg)
+        self.der_cost_biases(arg)
+
+        return self.der_cost_input(arg)
+
+    def get_gradient_data(self):
+        return LayerGradientData(self.cores_weights_derivatives, self.biases_derivatives)
+
+    def change_parameters(self, apply_function):
+        self.cores += apply_function(self.cores_weights_derivatives)
+        self.biases += apply_function(self.biases_derivatives)
+
 
 class MaxPoolingLayer(Layer):
     def __init__(self, core_shape, in_shape):
         assert len(in_shape) == 3 and "invalid input shape, should be a 3D-shape"
         assert len(core_shape) == 2 and "invalid core shape, should be a 2D-shape"
-        assert core_shape[0] <= in_shape[1] and core_shape[1] <= in_shape[2]\
+        assert core_shape[0] <= in_shape[1] and core_shape[1] <= in_shape[2] \
                and "core shape is out of input shape's bounds"
 
         super().__init__(in_shape, None)
@@ -235,6 +286,9 @@ class MaxPoolingLayer(Layer):
                     # tipping gradients throw polling layer:
                     self.x_derivatives_array[output_map_idx][point[0]][point[1]] = der_cost_result[output_map_idx][y][x]
 
+    def calc_derivatives(self, arg):
+        return self.der_cost_input(arg)
+
 
 class DenseLayer(Layer):
     def __init__(self, activation_f, neuron_count, prev_layer_neuron_count):
@@ -279,13 +333,14 @@ class DenseLayer(Layer):
         print(" biases vector: ")
         print_vector(self.biases)
 
-### calc derivatives methods:
+    ### calc derivatives methods:
     def der_cost_weights(self, der_cost_result):
         assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
 
         for i in range(self.weights_matrix.shape[0]):
             for j in range(self.weights_matrix.shape[1]):
-                self.weights_der_array[i][j] = der_cost_result[j] * get_der(self.activation_function)(self.z_array[j][0]) * self.input[i]
+                self.weights_der_array[i][j] = der_cost_result[j] * get_der(self.activation_function)(
+                    self.z_array[j][0]) * self.input[i]
 
     def der_cost_input(self, der_cost_result):
         assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
@@ -307,6 +362,19 @@ class DenseLayer(Layer):
         for b_idx in range(len(self.biases)):
             self.biases_der_array[b_idx][0] = der_cost_result[b_idx] * \
                                               get_der(self.activation_function)(self.z_array[b_idx][0])
+
+    def calc_derivatives(self, arg):
+        self.der_cost_weights(arg)
+        self.der_cost_biases(arg)
+
+        return self.der_cost_input(arg)
+
+    def get_gradient_data(self):
+        return LayerGradientData(self.weights_der_array, self.biases_der_array)
+
+    def change_parameters(self, apply_function):
+        self.weights_matrix += apply_function(self.weights_der_array)
+        self.biases += apply_function(self.biases_der_array)
 
 
 # flatten attribute's maps and concatenate it in one big vector. To apply it in Dense layer input
@@ -339,24 +407,41 @@ class ReformatLayer(Layer):
         assert der_cost_result.shape == self.output_shape
         self.x_derivatives_array = der_cost_result.reshape(self.input_shape)
 
+    def calc_derivatives(self, arg):
+        return self.der_cost_input(arg)
+
 
 class SoftmaxLayer(Layer):
     def __init__(self, neuron_count):
         super().__init__((neuron_count,), None)
         self.neuron_count = neuron_count
         self.output_shape = (neuron_count,)
+        self.x_derivatives_array = np.zeros(self.output_shape)
+        self.output = None
+        self.loss_function = log_loss
 
     def get_output(self, input):
         assert len(input.shape) == 1 and "should be 1d vector"
         assert len(input) == self.neuron_count and "invalid input items count"
 
         denominator = np.sum(np.exp(input))
+        self.output = np.array([np.exp(input[i]) / denominator for i in range(len(input))])
 
-        return np.array([np.exp(input[i]) / denominator for i in range(len(input))])
+        return self.output
 
     def print_config(self):
         print("Softmax layer")
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
+
+    def der_cost_input(self, actual_vector):
+        assert actual_vector.shape == self.output_shape and "invalid shape for Y der array"
+        self.x_derivatives_array = self.output - actual_vector
+
+        # already calculated that dY/dx = Y - t:
+        return self.x_derivatives_array
+
+    def calc_derivatives(self, arg):
+        return self.der_cost_input(arg)
 
 
 # Net as stack of layers
@@ -364,10 +449,13 @@ class Net(object):
     def __init__(self):
         self.layers = []
         self.layer_count = 0
+        self.learning_rate = 1
+        self.optimizer = None
 
     def get_last_layer(self):
         return self.layers[self.layer_count - 1]
 
+    # change net configuration methods:
     def add_layer(self, layer: Layer):
         if self.layer_count > 0:
             # layer's compatibility check
@@ -376,6 +464,45 @@ class Net(object):
         self.layers.append(layer)
         self.layer_count += 1
 
+    def set_learning_rate(self, lr):
+        assert lr > 0
+        self.learning_rate = lr
+
+    def set_optimizer(self, optimizer: Optimizer):
+        self.optimizer = optimizer
+
+# net learning methods:
+    def change_parameters(self):
+        gradient_norm = get_net_gradients_norm(self)
+        coefficient = self.optimizer.get_next_coefficient(gradient_norm)
+
+        # iterate over net layers and change weights and biases:
+        for layer in self.layers:
+            layer_gradient_data = layer.get_gradient_data()
+            l = lambda x: self.learning_rate * coefficient
+            f = np.vectorize(l)
+            layer.change_parameters(f)
+
+    def step(self, input_item, expected_output_item):
+        # forward propagation:
+        output = self.get_output(input_item)
+
+        # get input derivatives array on last layer:
+        last_layer = self.get_last_layer()
+        der_cost_result = last_layer.calc_derivatives(expected_output_item)
+
+        # calc derivatives in other layers:
+        for layer_idx in range(self.layer_count - 2, -1, -1):
+            cur_layer = self.layers[layer_idx]
+            der_cost_result = cur_layer.calc_derivatives(der_cost_result)
+        # change net parameters:
+        self.change_parameters()
+
+    def train(self, data: Data):    # net training on given data
+        for item_idx in range(data.size):
+            self.step(data.input_data[item_idx], data.expected_output_data[item_idx])
+
+# other:
     def get_output(self, input_data):
         input = input_data
 
@@ -447,3 +574,10 @@ def get_bound_point(image_shape, core_shape, point_x, point_y):
     right_down_y = min(point_y, im_height - core_height)
 
     return (left_up_y, left_up_x), (right_down_y, right_down_x)  # (y,x) notation
+
+
+def der_softmax_x(y_idx, x_idx, y_vector):
+    if y_idx == x_idx:
+        return y_vector[y_idx] - y_vector[y_idx] ** 2
+    else:
+        return -y_vector[y_idx] * y_vector[x_idx]
