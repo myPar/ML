@@ -13,6 +13,7 @@ class Layer(object):
         self.x_derivatives_array = None
         self.activation_function = activation_f
         self.input = None
+        self.name = None
 
     def set_x_der_array(self, der_array):
         self.x_derivatives_array = der_array
@@ -24,6 +25,9 @@ class Layer(object):
         pass
 
     def print_config(self):
+        pass
+
+    def print_der_config(self):
         pass
 
     def der_cost_input(self, der_cost_result):  # calculate input derivatives array and returns it
@@ -51,6 +55,8 @@ class CNNlayer(Layer):
         assert len(cores_shape) == 2 and "invalid core's shape"
         assert in_shape[1] >= cores_shape[0] and in_shape[2] >= cores_shape[1] \
                and "core shape is out of input shape's bounds"
+
+        self.name = "CNN layer"
 
         self.stride = stride
         in_width = in_shape[2]
@@ -118,7 +124,7 @@ class CNNlayer(Layer):
         self.biases = biases
 
     def print_config(self):
-        print("CNN layer:")
+        print(self.name)
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
         print(" cores: ")
 
@@ -128,6 +134,19 @@ class CNNlayer(Layer):
 
         print(" biases: ")
         print_vector(self.biases)
+
+    def print_der_config(self):
+        print(self.name)
+        space = "  "
+        print(space + "derivatives values:")
+
+        print(space * 2 + "input derivatives:")
+        print(space * 3 + self.x_derivatives_array)
+        print(space * 2 + "cores derivatives:")
+        print(space * 3 + self.cores_weights_derivatives)
+        print(space * 2 + "biases derivatives:")
+        print(space * 3 + self.biases_derivatives)
+
 
     ##### derivatives calculation:
     ### calc cores' weighs derivatives:
@@ -225,6 +244,7 @@ class MaxPoolingLayer(Layer):
         in_height = in_shape[1]
         core_width = core_shape[1]
         core_height = core_shape[0]
+        self.name = "Max Pooling layer"
         self.core_shape = core_shape
         self.output_shape = (in_shape[0], in_height // core_height, in_width // core_width)
 
@@ -273,6 +293,9 @@ class MaxPoolingLayer(Layer):
         print("MaxPooling layer")
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
         print(" core shape: " + str(self.core_shape))
+        print(" maximums positions:")
+        print(self.input_maximums_positions)
+
 
     #### derivatives calculation methods
     def der_cost_input(self, der_cost_result):
@@ -296,6 +319,7 @@ class DenseLayer(Layer):
         self.output_shape = (neuron_count,)
         self.input_shape = (prev_layer_neuron_count,)
         self.neuron_count = neuron_count
+        self.name = "Dense layer"
         # init weighs matrix (Wij) - i - idx of neuron from prev layer j - idx of neuron form cur layer
         self.weights_matrix = np.random.rand(prev_layer_neuron_count, neuron_count) * 2 - 1
         self.biases = np.random.rand(neuron_count, 1)  # vector-column of biases
@@ -385,6 +409,7 @@ class ReformatLayer(Layer):
 
         map_shape = (input_shape[1], input_shape[2])
         self.output_shape = (get_size(map_shape),)
+        self.name = "Reformat layer"
 
     def get_output(self, input):
         assert input.shape == self.input_shape and "invalid input data shape"
@@ -419,6 +444,7 @@ class SoftmaxLayer(Layer):
         self.x_derivatives_array = np.zeros(self.output_shape)
         self.output = None
         self.loss_function = log_loss
+        self.name = "Softmax layer"
 
     def get_output(self, input):
         assert len(input.shape) == 1 and "should be 1d vector"

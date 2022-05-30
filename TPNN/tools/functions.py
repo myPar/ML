@@ -114,6 +114,6 @@ def get_net_gradients_norm(net: Net):
             w_grad_norm = la.norm(grad_data.weights_gradient)
             b_grad_norm = la.norm(grad_data.biases_gradient)
 
-            result_norm += w_grad_norm ** 2 + b_grad_norm ** 2
+            result_norm += (w_grad_norm ** 2 + b_grad_norm ** 2)
 
     return math.sqrt(result_norm)
