@@ -1,5 +1,5 @@
-import numpy as np
-from TPNN.tools.functions import *
+import math
+import numpy.linalg as la
 from TPNN.tools.functions import *
 from TPNN.tools.optimizers import Optimizer
 from TPNN.tools.data import *
@@ -43,7 +43,7 @@ class Layer(object):
     def get_gradient_data(self):
         return None
 
-    def change_parameters(self, apply_function):    # increment net parameters on delta
+    def change_parameters(self, apply_function):  # increment net parameters on delta
         pass
 
 
@@ -77,6 +77,7 @@ class CNNlayer(Layer):
         # derivatives fields:
         self.cores_weights_derivatives = np.zeros(self.cores.shape)
         self.biases_derivatives = np.zeros(self.biases.shape)
+        self.x_derivatives_array = np.zeros(self.input_shape)
 
     def accept_filter(self, core_idx, image):
         output_map = np.zeros((self.output_shape[1], self.output_shape[2]))
@@ -141,12 +142,12 @@ class CNNlayer(Layer):
         print(space + "derivatives values:")
 
         print(space * 2 + "input derivatives:")
-        print(space * 3 + self.x_derivatives_array)
+        print_arrays(self.x_derivatives_array, space * 3)
         print(space * 2 + "cores derivatives:")
-        print(space * 3 + self.cores_weights_derivatives)
+        print_arrays(self.cores_weights_derivatives, space * 3)
         print(space * 2 + "biases derivatives:")
-        print(space * 3 + self.biases_derivatives)
-
+        print_arrays(self.biases_derivatives, space * 3)
+        print()
 
     ##### derivatives calculation:
     ### calc cores' weighs derivatives:
@@ -157,8 +158,9 @@ class CNNlayer(Layer):
         for y in range(self.output_shape[1]):
             for x in range(self.output_shape[2]):
                 z = self.z_array[core_idx][y][x]
-                term = der_cost_result[core_idx][y][x] * get_sum_x_from_maps(input_act_maps, y + core_y, x + core_x) \
-                       * get_der(self.activation_function)(z)
+                term = der_cost_result[core_idx][y][x] * \
+                       get_sum_x_from_maps(input_act_maps, y * self.stride + core_y, x * self.stride + core_x) * \
+                       get_der(self.activation_function)(z)
                 result_der += term
 
         return result_der
@@ -169,8 +171,8 @@ class CNNlayer(Layer):
         for core_idx in range(len(self.cores)):  # calc der for each core
             core = self.cores[core_idx]
 
-            for core_y in range(len(core.shape[0])):
-                for core_x in range(len(core.shape[1])):
+            for core_y in range(core.shape[0]):
+                for core_x in range(core.shape[1]):
                     self.cores_weights_derivatives[core_idx][core_y][core_x] = \
                         self.get_der_cost_weight(core_x, core_y, core_idx, der_cost_result, self.input)
 
@@ -191,7 +193,7 @@ class CNNlayer(Layer):
         return result_der
 
     def der_cost_input(self, der_cost_result):
-        assert der_cost_result.shape == self.output_shape
+        assert der_cost_result.shape == self.output_shape and "cnn layer"
 
         for input_map_idx in range(self.input.shape[0]):
             for y in range(self.input.shape[1]):
@@ -296,18 +298,29 @@ class MaxPoolingLayer(Layer):
         print(" maximums positions:")
         print(self.input_maximums_positions)
 
+    def print_der_config(self):
+        print(self.name)
+        space = "  "
+        print(space + "derivatives values:")
+
+        print(space * 2 + "input derivatives:")
+        print_arrays(self.x_derivatives_array, space * 3)
+        print()
 
     #### derivatives calculation methods
     def der_cost_input(self, der_cost_result):
-        self.x_derivatives_array = np.zeros(input(self.input.shape))
+        assert der_cost_result.shape == self.output_shape and "max pooling layer"
+        self.x_derivatives_array = np.zeros(self.input_shape)
 
         for output_map_idx in range(self.output.shape[0]):
             for y in range(self.output.shape[1]):
                 for x in range(self.output.shape[2]):
                     point = self.input_maximums_positions[output_map_idx][y][x]
-
+                    assert point.shape == (2,)
                     # tipping gradients throw polling layer:
-                    self.x_derivatives_array[output_map_idx][point[0]][point[1]] = der_cost_result[output_map_idx][y][x]
+                    self.x_derivatives_array[output_map_idx][int(point[0])][int(point[1])] = der_cost_result[output_map_idx][y][x]
+
+        return self.x_derivatives_array
 
     def calc_derivatives(self, arg):
         return self.der_cost_input(arg)
@@ -357,6 +370,19 @@ class DenseLayer(Layer):
         print(" biases vector: ")
         print_vector(self.biases)
 
+    def print_der_config(self):
+        print(self.name)
+        space = "  "
+        print(space + "derivatives values:")
+
+        print(space * 2 + "input derivatives:")
+        print_arrays(self.x_derivatives_array, space * 3)
+        print(space * 2 + "cores derivatives:")
+        print_arrays(self.weights_der_array, space * 3)
+        print(space * 2 + "biases derivatives:")
+        print_arrays(self.biases_der_array, space * 3)
+        print()
+
     ### calc derivatives methods:
     def der_cost_weights(self, der_cost_result):
         assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
@@ -367,7 +393,7 @@ class DenseLayer(Layer):
                     self.z_array[j][0]) * self.input[i]
 
     def der_cost_input(self, der_cost_result):
-        assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
+        assert der_cost_result.shape == self.output_shape and "dense layer: invalid Y der array shape"
         prev_layer_neuron_count = self.input_shape[0]
         cur_layer_neuron_count = self.neuron_count
 
@@ -379,6 +405,8 @@ class DenseLayer(Layer):
                               get_der(self.activation_function)(self.z_array[cur_layer_neuron_idx]) \
                               * self.weights_matrix[prev_layer_neuron_idx][cur_layer_neuron_idx]
             self.x_derivatives_array[prev_layer_neuron_idx] = result_der
+
+        return self.x_derivatives_array
 
     def der_cost_biases(self, der_cost_result):
         assert der_cost_result.shape == self.output_shape and "invalid Y der array shape"
@@ -408,19 +436,18 @@ class ReformatLayer(Layer):
         super().__init__(input_shape, None)
 
         map_shape = (input_shape[1], input_shape[2])
-        self.output_shape = (get_size(map_shape),)
+        self.output_shape = (get_size(input_shape),)
         self.name = "Reformat layer"
 
     def get_output(self, input):
         assert input.shape == self.input_shape and "invalid input data shape"
-        result = input.flatten()
+        result = input[0].flatten()
 
         # flatten attributes maps:
         for i in range(input.shape[0] - 1):
             map_idx = i + 1
             cur_map = input[map_idx]
-            result = np.concatenate((result, cur_map))
-
+            result = np.concatenate((result, cur_map), axis=None)
         return result
 
     def print_config(self):
@@ -429,8 +456,10 @@ class ReformatLayer(Layer):
 
     ### calc derivatives methods:
     def der_cost_input(self, der_cost_result):
-        assert der_cost_result.shape == self.output_shape
+        assert der_cost_result.shape == self.output_shape and "reformat layer"
         self.x_derivatives_array = der_cost_result.reshape(self.input_shape)
+
+        return self.x_derivatives_array
 
     def calc_derivatives(self, arg):
         return self.der_cost_input(arg)
@@ -459,8 +488,19 @@ class SoftmaxLayer(Layer):
         print("Softmax layer")
         print(" input shape - " + str(self.input_shape) + "; output shape - " + str(self.output_shape))
 
+    def print_der_config(self):
+        print(self.name)
+        space = "  "
+        print(space + "derivatives values:")
+
+        print(space * 2 + "input derivatives:")
+        print_arrays(self.x_derivatives_array, space * 3)
+        print()
+
     def der_cost_input(self, actual_vector):
-        assert actual_vector.shape == self.output_shape and "invalid shape for Y der array"
+        print("actual vector:" + str(actual_vector.shape))
+        print("output vector:" + str(self.output_shape))
+        assert actual_vector.shape == self.output_shape and "softmax layer: invalid shape for Y der array"
         self.x_derivatives_array = self.output - actual_vector
 
         # already calculated that dY/dx = Y - t:
@@ -477,6 +517,7 @@ class Net(object):
         self.layer_count = 0
         self.learning_rate = 1
         self.optimizer = None
+        self.need_debug = False
 
     def get_last_layer(self):
         return self.layers[self.layer_count - 1]
@@ -497,9 +538,29 @@ class Net(object):
     def set_optimizer(self, optimizer: Optimizer):
         self.optimizer = optimizer
 
-# net learning methods:
+    def debug(self):
+        if self.debug:
+            for layer in self.layers:
+                layer.print_der_config()
+
+    # calculate summarized gradient norm for all net
+    def get_net_gradients_norm(self):
+        result_norm = 0
+
+        for layer in self.layers:
+            grad_data = layer.get_gradient_data()
+
+            if not (grad_data is None):
+                w_grad_norm = la.norm(grad_data.weights_gradient)
+                b_grad_norm = la.norm(grad_data.biases_gradient)
+
+                result_norm += (w_grad_norm ** 2 + b_grad_norm ** 2)
+
+        return math.sqrt(result_norm)
+
+    # net learning methods:
     def change_parameters(self):
-        gradient_norm = get_net_gradients_norm(self)
+        gradient_norm = self.get_net_gradients_norm()
         coefficient = self.optimizer.get_next_coefficient(gradient_norm)
 
         # iterate over net layers and change weights and biases:
@@ -521,14 +582,15 @@ class Net(object):
         for layer_idx in range(self.layer_count - 2, -1, -1):
             cur_layer = self.layers[layer_idx]
             der_cost_result = cur_layer.calc_derivatives(der_cost_result)
+        self.debug()
         # change net parameters:
         self.change_parameters()
 
-    def train(self, data: Data):    # net training on given data
+    def train(self, data: Data):  # net training on given data
         for item_idx in range(data.size):
             self.step(data.input_data[item_idx], data.expected_output_data[item_idx])
 
-# other:
+    # other:
     def get_output(self, input_data):
         input = input_data
 

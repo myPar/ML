@@ -1,13 +1,6 @@
-import math
-
 import numpy as np
-import numpy.linalg as la
-
 
 # activation functions
-from TPNN.tools.CNNarchitecture import Net
-
-
 def ident(x):
     return x
 
@@ -59,7 +52,8 @@ def get_der(function_ident):
     else:
         assert False
 
-#--------- loss functions:
+
+# --------- loss functions:
 
 # checks is vector an one-hot-encoding vector
 def check_one_hot_encoding(one_hot_enc_vector):
@@ -103,17 +97,40 @@ def der_loss_y(loss_function, predicted_vector, actual_vector):
         assert False
 
 
-# calculate summarized gradient norm for all net
-def get_net_gradients_norm(net: Net):
-    result_norm = 0
+def print_2d_array(arr, space):
+    assert len(arr.shape) == 2
 
-    for layer in net.layers:
-        grad_data = layer.get_gradient_data()
+    for y in range(arr.shape[0]):
+        print(space, end='')
 
-        if not (grad_data is None):
-            w_grad_norm = la.norm(grad_data.weights_gradient)
-            b_grad_norm = la.norm(grad_data.biases_gradient)
+        for x in range(arr.shape[1]):
+            print(str(arr[y][x]) + " ", end='')
+        print()
+    print()
 
-            result_norm += (w_grad_norm ** 2 + b_grad_norm ** 2)
 
-    return math.sqrt(result_norm)
+def print_block(arr, dim, dim_count, st_space):
+    if dim == dim_count - 2:
+        print_2d_array(arr, st_space + "  " * dim)
+    else:
+        space = st_space + dim * "  "
+        items_count = arr.shape[0]
+
+        for i in range(items_count):
+            print(space + "[" + str(i) + "]:")
+            print_block(arr[i], dim + 1, dim_count, space + (dim + 1) * " ")
+
+
+def print_arrays(arr, st_space):
+    dim_count = len(arr.shape)
+
+    if dim_count == 2:
+        print_2d_array(arr, st_space)
+    elif dim_count == 1:
+        print(st_space, end='')
+
+        for x in range(len(arr)):
+            print(str(arr[x]) + " ", end='')
+        print()
+    else:
+        print_block(arr, 0, dim_count, st_space)
