@@ -13,11 +13,16 @@ def th(x):
     return np.tanh(x)
 
 
+# applied to 1-d array
 def ELU(x, alpha):
-    if x >= 0:
-        return x
-    else:
-        return alpha * (np.exp(x) - 1)
+    for i in range(len(x)):
+        if x[i] < 0:
+            x[i] = alpha * (np.exp(x) - 1)
+    return x
+
+
+def RELU(x):
+    return np.maximum(x, 0)
 
 
 # derivatives of activation functions
@@ -34,10 +39,25 @@ def th_der(x):
 
 
 def ELU_der(x, alpha):
-    if x >= 0:
-        return 1
+    for i in range(len(x)):
+        if x >= 0:
+            x[i] = 1
+        else:
+            x[i] = alpha * np.exp(x)
+    return x
+
+
+def RELU_der(x):
+    if np.isscalar(x):
+        if x >= 0:
+            return 1
+        else:
+            return 0
     else:
-        return alpha * np.exp(x)
+        x[x >= 0] = 1
+        x[x < 0] = 0
+
+    return x
 
 
 def get_der(function_ident):
@@ -49,6 +69,8 @@ def get_der(function_ident):
         return th_der
     elif function_ident == ELU:
         return ELU_der
+    elif function_ident == RELU:
+        return RELU_der
     else:
         assert False
 
@@ -134,3 +156,27 @@ def print_arrays(arr, st_space):
         print()
     else:
         print_block(arr, 0, dim_count, st_space)
+
+
+def get_value(softmax_result):  # returns predicted value from softmax result or one-hot-enc vector
+    assert np.sum(softmax_result) == 1
+    np.argmax(softmax_result)
+
+
+def average_loss(actual_data, predicted_data, loss_function):
+    np.mean([loss_function(actual_data[i], predicted_data[i]) for i in range(len(actual_data))])
+
+
+# act_data - one-hot-enc vector, pred_data - softmax result vector
+def categorical_accuracy(actual_data, predicted_data):
+    count_true_predicted = 0
+    count_total = len(actual_data)
+
+    for i in range(len(actual_data)):
+        act_item = actual_data[i]
+        pred_item = predicted_data[i]
+
+        if get_value(act_item) == get_value(pred_item):
+            count_true_predicted += 1
+
+    return count_true_predicted / count_total

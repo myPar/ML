@@ -498,8 +498,6 @@ class SoftmaxLayer(Layer):
         print()
 
     def der_cost_input(self, actual_vector):
-        print("actual vector:" + str(actual_vector.shape))
-        print("output vector:" + str(self.output_shape))
         assert actual_vector.shape == self.output_shape and "softmax layer: invalid shape for Y der array"
         self.x_derivatives_array = self.output - actual_vector
 
@@ -518,6 +516,9 @@ class Net(object):
         self.learning_rate = 1
         self.optimizer = None
         self.need_debug = False
+        self.loss_list = []
+        self.metric_list = []
+        self.print_train_metrics = True
 
     def get_last_layer(self):
         return self.layers[self.layer_count - 1]
@@ -539,7 +540,7 @@ class Net(object):
         self.optimizer = optimizer
 
     def debug(self):
-        if self.debug:
+        if self.need_debug:
             for layer in self.layers:
                 layer.print_der_config()
 
@@ -586,9 +587,21 @@ class Net(object):
         # change net parameters:
         self.change_parameters()
 
-    def train(self, data: Data):  # net training on given data
-        for item_idx in range(data.size):
-            self.step(data.input_data[item_idx], data.expected_output_data[item_idx])
+    def train(self, data: Data, epoch_count):  # net training on given data
+        self.loss_list = []
+
+        for epoch in range(epoch_count):
+            for item_idx in range(data.size):
+                self.step(data.input_data[item_idx], data.expected_output_data[item_idx])
+                print("step-" + str(item_idx))
+            loss = average_loss(data.input_data, data.expected_output_data, log_loss)
+            metric = categorical_accuracy(data.input_data, data.expected_output_data)
+
+            self.loss_list.append(loss)
+            self.metric_list.append(metric)
+
+            if self.print_train_metrics:
+                print("epoch-" + str(epoch) + ": loss=" + str(loss) + "; metric=" + str(metric))
 
     # other:
     def get_output(self, input_data):
