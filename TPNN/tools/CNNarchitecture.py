@@ -83,8 +83,8 @@ class CNNlayer(Layer):
         output_map = np.zeros((self.output_shape[1], self.output_shape[2]))
         filter_core = self.cores[core_idx]
 
-        for i in range(self.output_shape[0]):
-            for j in range(self.output_shape[1]):
+        for i in range(self.output_shape[1]):
+            for j in range(self.output_shape[2]):
                 angle_x = j * self.stride
                 angle_y = i * self.stride
 
@@ -101,7 +101,7 @@ class CNNlayer(Layer):
         assert input.shape == self.input_shape and "input shape doesn't match with layer input shape"
         assert len(input.shape) == 3 and "input shape should have 3 dimensions"
         self.input = input  # cache input data
-        self.z_array = np.zeros(self.output_shape)  # reset z-array
+
         map_count = input.shape[0]  # count of attribute's map
 
         # accept each filter to all attribute maps and concatenate the result
@@ -230,8 +230,8 @@ class CNNlayer(Layer):
         return LayerGradientData(self.cores_weights_derivatives, self.biases_derivatives)
 
     def change_parameters(self, apply_function):
-        self.cores += apply_function(self.cores_weights_derivatives)
-        self.biases += apply_function(self.biases_derivatives)
+        self.cores -= apply_function(self.cores_weights_derivatives)
+        self.biases -= apply_function(self.biases_derivatives)
 
 
 class MaxPoolingLayer(Layer):
@@ -310,6 +310,7 @@ class MaxPoolingLayer(Layer):
     #### derivatives calculation methods
     def der_cost_input(self, der_cost_result):
         assert der_cost_result.shape == self.output_shape and "max pooling layer"
+        assert self.output.shape[0] == self.input_shape[0]
         self.x_derivatives_array = np.zeros(self.input_shape)
 
         for output_map_idx in range(self.output.shape[0]):
@@ -377,7 +378,7 @@ class DenseLayer(Layer):
 
         print(space * 2 + "input derivatives:")
         print_arrays(self.x_derivatives_array, space * 3)
-        print(space * 2 + "cores derivatives:")
+        print(space * 2 + "weights derivatives:")
         print_arrays(self.weights_der_array, space * 3)
         print(space * 2 + "biases derivatives:")
         print_arrays(self.biases_der_array, space * 3)
@@ -425,8 +426,8 @@ class DenseLayer(Layer):
         return LayerGradientData(self.weights_der_array, self.biases_der_array)
 
     def change_parameters(self, apply_function):
-        self.weights_matrix += apply_function(self.weights_der_array)
-        self.biases += apply_function(self.biases_der_array)
+        self.weights_matrix -= apply_function(self.weights_der_array)
+        self.biases -= apply_function(self.biases_der_array)
 
 
 # flatten attribute's maps and concatenate it in one big vector. To apply it in Dense layer input
@@ -513,7 +514,7 @@ class Net(object):
     def __init__(self):
         self.layers = []
         self.layer_count = 0
-        self.learning_rate = 1
+        self.learning_rate = 0.001
         self.optimizer = None
         self.need_debug = False
         self.loss_list = []
@@ -566,8 +567,7 @@ class Net(object):
 
         # iterate over net layers and change weights and biases:
         for layer in self.layers:
-            layer_gradient_data = layer.get_gradient_data()
-            l = lambda x: self.learning_rate * coefficient
+            l = lambda x: self.learning_rate * coefficient * x
             f = np.vectorize(l)
             layer.change_parameters(f)
 
@@ -587,15 +587,32 @@ class Net(object):
         # change net parameters:
         self.change_parameters()
 
+        return output
+
+    def get_predictions(self, input_data):
+        assert input_data.shape[1:] == self.layers[0].input_shape
+        predictions = []
+
+        for item in input_data:
+            predictions.append(self.get_output(item))
+
+        return np.array(predictions)
+
     def train(self, data: Data, epoch_count):  # net training on given data
         self.loss_list = []
+        self.metric_list = []
 
         for epoch in range(epoch_count):
+            predictions = []
+
             for item_idx in range(data.size):
-                self.step(data.input_data[item_idx], data.expected_output_data[item_idx])
-                print("step-" + str(item_idx))
-            loss = average_loss(data.input_data, data.expected_output_data, log_loss)
-            metric = categorical_accuracy(data.input_data, data.expected_output_data)
+                output = self.step(data.input_data[item_idx], data.expected_output_data[item_idx])
+                predictions.append(output)
+                #print("step-" + str(item_idx))
+            predictions = np.array(predictions)
+
+            loss = average_loss(data.expected_output_data, predictions, log_loss)
+            metric = categorical_accuracy(data.expected_output_data, predictions)
 
             self.loss_list.append(loss)
             self.metric_list.append(metric)

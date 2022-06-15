@@ -159,12 +159,45 @@ def print_arrays(arr, st_space):
 
 
 def get_value(softmax_result):  # returns predicted value from softmax result or one-hot-enc vector
-    assert np.sum(softmax_result) == 1
-    np.argmax(softmax_result)
+    assert 0.95 <= np.sum(softmax_result) <= 1.1
+
+    return np.argmax(softmax_result)
+
+
+# return corresponding one hot encoding vector to number
+def get_one_hot_encoding(number: int):
+    assert 9 >= number >= 0
+    result = np.zeros((10, ))
+    result[number] = 1
+
+    return result
+
+
+# prob_prediction - prob vector, target_class - value, threshold - value
+def get_prediction(prob_prediction, target_class, threshold):
+    assert len(prob_prediction) == 10 and np.max(prob_prediction) <= 1 and np.min(prob_prediction) >= 0
+    assert 9 >= target_class >= 0
+    assert 1 >= threshold >= 0
+
+    if prob_prediction[target_class] >= threshold:
+        return int(target_class)
+    else:
+        return -1
+
+
+# prob_predictions - prob vectors, target_class - value, threshold - value
+def get_predictions(prob_predictions, target_class, threshold):
+    pred_count = len(prob_predictions)
+    result_predictions = np.zeros((pred_count,)) - 1
+
+    for i in range(pred_count):
+        result_predictions[i] = get_prediction(prob_predictions[i], target_class, threshold)
+
+    return result_predictions
 
 
 def average_loss(actual_data, predicted_data, loss_function):
-    np.mean([loss_function(actual_data[i], predicted_data[i]) for i in range(len(actual_data))])
+    return np.mean([loss_function(actual_data[i], predicted_data[i]) for i in range(len(actual_data))])
 
 
 # act_data - one-hot-enc vector, pred_data - softmax result vector
