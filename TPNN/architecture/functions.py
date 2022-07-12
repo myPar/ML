@@ -75,6 +75,12 @@ def get_der(function_ident):
         assert False
 
 
+def softmax(arr):
+    numerator = np.exp(arr)
+
+    return numerator / np.sum(numerator)
+
+
 # --------- loss functions:
 
 # checks is vector an one-hot-encoding vector
