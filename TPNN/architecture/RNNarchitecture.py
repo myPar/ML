@@ -2,6 +2,15 @@ import numpy as np
 from numpy import random
 from TPNN.architecture.functions import *
 
+"""""
+timestep - number of current recurrent block (from 0 to timesteps - 1)
+
+let: timestep = t
+then: h_t = h[t-1] , c_t = c[t-1] and h_t+1 = h[t], c_t+1 = c[t]
+last timestep = self.timesteps - 1
+so h values are: h_1, h_2, ..., h_timestep
+"""""
+
 
 class LSTM(object):
     def __init__(self, input_shape, output_size, timesteps):
@@ -74,13 +83,22 @@ class LSTM(object):
 
         # cacheable parameters:
         self.c1_h_y = None
-        self.diag_o = None
-        self.diag_th_c1 = None
 
-        self.diag_sigma_f = None
-        self.diag_th_p = None
-        self.diag_sigma_i = None
-        self.diag_sigma_o = None
+        self.diag_o = None
+        self.diag_i = None
+        self.diag_f = None
+        self.diag_p = None
+
+        self.diag_sigma_f_der = None
+        self.diag_th_p_der = None
+        self.diag_sigma_i_der = None
+        self.diag_sigma_o_der = None
+
+        self.diag_th_c1_der = None
+        self.h1_h_y = None
+        self.c1_c_y = None
+        self.h1_c_y = None
+        self.h_c_y = None
 
     def get_node(self, U_matrix, W_matrix, biase, timestep, function, first_block: bool):
         x_vector = self.x_sequence[timestep]
@@ -112,10 +130,10 @@ class LSTM(object):
         self.output_sequence[0] = softmax(self.h[0])
 
         for t in range(1, self.timesteps):
-            self.f[t] = self.get_node(self.U_f, self.W_f, self.b_f, t, sigmoid, True)
-            self.o[t] = self.get_node(self.U_o, self.W_o, self.b_o, t, sigmoid, True)
-            self.i[t] = self.get_node(self.U_i, self.W_i, self.b_i, t, sigmoid, True)
-            self.p[t] = self.get_node(self.U_p, self.W_p, self.b_p, t, th, True)
+            self.f[t] = self.get_node(self.U_f, self.W_f, self.b_f, t, sigmoid, False)
+            self.o[t] = self.get_node(self.U_o, self.W_o, self.b_o, t, sigmoid, False)
+            self.i[t] = self.get_node(self.U_i, self.W_i, self.b_i, t, sigmoid, False)
+            self.p[t] = self.get_node(self.U_p, self.W_p, self.b_p, t, th, False)
 
             self.c[t] = self.c[t - 1] * self.f[t] + self.i[t] * self.p[t]
             self.h[t] = self.o[t] * np.apply_along_axis(th, 0, self.c[t])
@@ -172,21 +190,68 @@ class LSTM(object):
         # 1. calc h and c gradients
         # 2. calc node gradients
         # 3. calc U,W,b gradients
+        timesteps = self.timesteps
+
+        # calc h1_t_end, c1_t_end gradients (t_end - last timestep)
+        c1_t_end = self.c[timesteps - 1]
+
+        h1_t_end_grad = self.h_der_array[timesteps - 1] = self.output_sequence[timesteps - 1] - expected_output_sequence[timesteps]
+        self.c_der_array[timesteps - 1] = np.matmul(np.matmul(np.diagflat(self.o[timesteps - 1]),
+                                                    np.diagflat(1 - np.apply_along_axis(th, 0, c1_t_end) ** 2)).T, h1_t_end_grad)
 
         # calc last timestep h and c gradients:
-        for t in range(self.timesteps - 2, -1, -1):
-            if t < self.timesteps - 1:
-                # calc cacheable parameters:
-                self.diag_th_c1 = np.diagflat(1 - np.apply_along_axis(th, 0, self.c[t + 1]) ** 2)
-                self.diag_o = np.diagflat(self.o[t])
-                self.c1_h_y = self.calc_c1_h_y(t, expected_output_sequence)
+        for t in range(self.timesteps - 1, -1, -1):
+            # calc cacheable parameters:
+            c1_t = self.c[t]
+            self.diag_th_c1_der = np.diagflat(1 - np.apply_along_axis(th, 0, c1_t) ** 2)
 
-                self.diag_sigma_f = np.diagflat((1 - self.f[t]) * self.f[t])
-                self.diag_th_p = np.diagflat(1 - self.p[t] ** 2)
-                self.diag_sigma_i = np.deagflat((1 - self.i[t]) * self.i[t])
-                self.diag_sigma_o = np.deagflat((1 - self.o[t]) * self.o[t])
+            self.diag_o = np.diagflat(self.o[t])
+            self.diag_f = np.diagflat(self.f[t])
+            self.diag_i = np.diagflat(self.i[t])
+            self.diag_p = np.diagflat(self.p[t])
 
-    def calc_c1_h_y(self, timestep, expected_output_sequence):
+            self.diag_sigma_f_der = np.diagflat((1 - self.f[t]) * self.f[t])
+            self.diag_th_p_der = np.diagflat(1 - self.p[t] ** 2)
+            self.diag_sigma_i_der = np.deagflat((1 - self.i[t]) * self.i[t])
+            self.diag_sigma_o_der = np.deagflat((1 - self.o[t]) * self.o[t])
+
+            self.c1_h_y = self.calc_c1_h_y(t)
+            self.h1_h_y = self.calc_h1_h_y(t)
+            self.c1_c_y = self.diag_f
+            self.h1_c_y = self.calc_h1_c_y()
+            self.h_c_y = self.calc_h_c_y(t)
+
+    def calc_h_c_y(self, timestep):
+        c_t = self.c[timestep - 1]
+        diag_th_c_der = np.diagflat(1 - np.apply_along_axis(th, 0, c_t) ** 2)
+
+        return np.matmul(self.diag_o, diag_th_c_der)
+
+    def calc_h1_c_y(self):
+        return np.matmul(np.matmul(self.diag_o, self.diag_th_c1_der), self.diag_f)
+
+    def calc_h1_h_y(self, timestep):
+        c1_t = self.c[timestep]
+        diag_th_c1 = np.diagflat(np.apply_along_axis(th, 0, c1_t))
+
+        return np.matmul(np.matmul(self.diag_o, self.diag_th_c1_der), self.c1_h_y) + \
+               np.matmul(np.matmul(diag_th_c1, self.diag_sigma_o_der), self.W_o)
+
+    def calc_c1_h_y(self, timestep):
+        c_t = self.c[timestep - 1]
+
         def calc_f_h_y():
-            return np.matmul(self.diag_sigma_f, self.W_f)
+            return np.matmul(self.diag_sigma_f_der, self.W_f)
+
+        def calc_p_h_y():
+            return np.matmul(self.diag_th_p_der, self.W_p)
+
+        def calc_i_h_y():
+            return np.matmul(self.diag_sigma_i_der, self.W_i)
+
+        return np.matmul(np.diagflat(c_t), calc_f_h_y()) + \
+                np.matmul(np.diagflat(self.i[timestep]), calc_i_h_y()) + \
+                np.matmul(np.diagflat(self.p[timestep]), calc_p_h_y())
+
+
 
