@@ -89,6 +89,8 @@ class LSTM(object):
         self.diag_f = None
         self.diag_p = None
 
+        self.diag_c = None
+
         self.diag_sigma_f_der = None
         self.diag_th_p_der = None
         self.diag_sigma_i_der = None
@@ -142,50 +144,24 @@ class LSTM(object):
 
         return self.output_sequence
 
-    # calc c derivative methods:
-    def calc_h1_c_y(self, timestep):
-        diag_o = np.diagflat(self.o[timestep])
-        diag_th_c1 = np.diagflat(1 - np.apply_along_axis(th, 0, self.c[timestep + 1]) ** 2)
-        diag_f = np.diagflat(self.f[timestep])
-
-        return np.matmul(np.matmul(diag_o, diag_th_c1), diag_f)
-
-    def calc_h_c_y(self, timestep):
-        diag_o = np.diagflat(self.o[timestep])
-        diag_th_c1 = np.diagflat(1 - np.apply_along_axis(th, 1, self.c[timestep + 1]) ** 2)
-
-        return np.matmul(diag_o, diag_th_c1)
-
-    # note: c1_c_y - dc^t+1/dc^t yacobian
-    def calc_c_der_item(self, timestep, expected_output_sequence):
-        if timestep == self.timesteps - 1:
-            diag_o = np.diagflat(self.o[timestep])
-            diag_th_c = np.diagflat(1 - np.apply_along_axis(th, 0, self.c[timestep]) ** 2)
-            h_gradient = self.h_der_array[timestep]
-
-            self.c_der_array[timestep] = np.matmul(np.matmul(diag_o, diag_th_c), h_gradient)
-        else:
-            h1_c_y =  self.calc_h1_c_y(timestep)
-            h_c_y = self.calc_h_c_y(timestep)
-            c1_c_y = np.diagflat(self.f[timestep])
-
-            self.c_der_array[timestep] = np.matmul(c1_c_y.T, self.c_der_array[timestep + 1]) + \
-                                         np.matmul(h1_c_y.T, self.h_der_array[timestep + 1]) + \
-                                         np.matmul(h_c_y.T, self.output_sequence[timestep] - expected_output_sequence[timestep])
-
-    def calc_h1_h_y(self, timestep, expected_output_sequence):
-        diag_o = np.diagflat(self.o[timestep])
-        diag_th_c1 = np.diagflat(1 - np.apply_along_axis(th, 0, self.c[timestep + 1]) ** 2)
-
-    def calc_h_der_item(self, timestep, expected_output_sequnce):
-        if timestep == self.timesteps - 1:
-            return self.output_sequence[timestep] - expected_output_sequnce[timestep]
-        else:
-            h1_h_y = self.calc_h1_h_y(timestep, expected_output_sequnce)
-
     def calc_derivatives(self, expected_output_sequence):
         assert expected_output_sequence.shape == self.output_sequence.shape
-        last_idx = self.timesteps - 1
+
+        # reset derivatives arrays:
+        self.W_f_der_array *= 0
+        self.W_o_der_array *= 0
+        self.W_i_der_array *= 0
+        self.W_p_der_array *= 0
+
+        self.U_f_der_array *= 0
+        self.U_o_der_array *= 0
+        self.U_i_der_array *= 0
+        self.U_p_der_array *= 0
+
+        self.b_f_der_array *= 0
+        self.b_o_der_array *= 0
+        self.b_i_der_array *= 0
+        self.b_p_der_array *= 0
 
         # 1. calc h and c gradients
         # 2. calc node gradients
@@ -200,8 +176,9 @@ class LSTM(object):
                                                     np.diagflat(1 - np.apply_along_axis(th, 0, c1_t_end) ** 2)).T, h1_t_end_grad)
 
         # calc last timestep h and c gradients:
+
+        # calc cacheable parameters:
         for t in range(self.timesteps - 1, -1, -1):
-            # calc cacheable parameters:
             c1_t = self.c[t]
             self.diag_th_c1_der = np.diagflat(1 - np.apply_along_axis(th, 0, c1_t) ** 2)
 
@@ -210,16 +187,84 @@ class LSTM(object):
             self.diag_i = np.diagflat(self.i[t])
             self.diag_p = np.diagflat(self.p[t])
 
+            self.diag_c = np.diagflat(self.c[t - 1])
+
             self.diag_sigma_f_der = np.diagflat((1 - self.f[t]) * self.f[t])
             self.diag_th_p_der = np.diagflat(1 - self.p[t] ** 2)
             self.diag_sigma_i_der = np.deagflat((1 - self.i[t]) * self.i[t])
             self.diag_sigma_o_der = np.deagflat((1 - self.o[t]) * self.o[t])
 
-            self.c1_h_y = self.calc_c1_h_y(t)
-            self.h1_h_y = self.calc_h1_h_y(t)
-            self.c1_c_y = self.diag_f
-            self.h1_c_y = self.calc_h1_c_y()
-            self.h_c_y = self.calc_h_c_y(t)
+            c1_h_y = self.calc_c1_h_y(t)
+            h1_h_y = self.calc_h1_h_y(t)
+            c1_c_y = self.diag_f
+            h1_c_y = self.calc_h1_c_y()
+            h_c_y = self.calc_h_c_y(t)
+
+            # calc h and c gradients:
+            if t > 0:
+                h_t_grad = self.output_sequence[t - 1] - expected_output_sequence[t - 1]
+                self.h_der_array[t - 1] = np.matmul(h1_h_y.T, self.h_der_array[t]) + \
+                                          np.matmul(c1_h_y.T, self.c_der_array[t]) + \
+                                          h_t_grad
+                self.c_der_array[t - 1] = np.matmul(c1_c_y.T, self.c_der_array[t]) + \
+                                          np.matmul(h1_c_y.T, self.h_der_array[t]) + \
+                                          np.matmul(h_c_y.T, h_t_grad)
+
+            # calc i,c,o,f gradients:
+            h1_i_y = self.calc_h1_i_y()
+            c1_i_y = self.diag_p
+
+            h1_f_y = self.calc_h1_f_y()
+            c1_f_y = self.diag_c
+
+            h1_o_y = self.calc_h1_o_y(t)
+
+            h1_p_y = self.calc_h1_p_y()
+            c1_p_y = self.diag_i
+
+            self.i_der_array[t] = np.matmul(h1_i_y.T, self.h_der_array[t]) + \
+                                  np.matmul(c1_i_y.T, self.c_der_array[t])
+            self.f_der_array[t] = np.matmul(h1_f_y.T, self.h_der_array[t]) + \
+                                  np.matmul(c1_f_y.T, self.c_der_array[t])
+            self.o_der_array[t] = np.matmul(h1_o_y.T, self.h_der_array[t])
+            self.p_der_array[t] = np.matmul(h1_p_y.T, self.h_der_array[t]) + \
+                                  np.matmul(c1_p_y.T, self.c_der_array[t])
+
+        # calc gradient for LSTM parameters (W,U,b for all nodes)
+        for i in range(self.timesteps):
+            arg_f = np.diagflat((1 - self.f[i]) * self.f[i])
+            arg_i = np.diagflat((1 - self.i[i]) * self.i[i])
+            arg_o = np.diagflat((1 - self.o[i]) * self.o[i])
+            arg_p = np.diagflat((1 - self.p[i] ** 2))
+
+            if i > 0:
+                self.W_f_der_array += np.matmul(np.matmul(arg_f, self.f_der_array[i]), self.h[i - 1])
+                self.W_i_der_array += np.matmul(np.matmul(arg_i, self.i_der_array[i]), self.h[i - 1])
+                self.W_o_der_array += np.matmul(np.matmul(arg_o, self.o_der_array[i]), self.h[i - 1])
+                self.W_p_der_array += np.matmul(np.matmul(arg_p, self.p_der_array[i]), self.h[i - 1])
+
+            self.U_f_der_array += np.matmul(np.matmul(arg_f, self.f_der_array[i]), self.x_sequence[i])
+            self.U_i_der_array += np.matmul(np.matmul(arg_i, self.i_der_array[i]), self.x_sequence[i])
+            self.U_o_der_array += np.matmul(np.matmul(arg_o, self.o_der_array[i]), self.x_sequence[i])
+            self.U_p_der_array += np.matmul(np.matmul(arg_p, self.p_der_array[i]), self.x_sequence[i])
+
+            self.b_f_der_array += np.matmul(arg_f.T, self.f_der_array[i])
+            self.b_i_der_array += np.matmul(arg_i.T, self.i_der_array[i])
+            self.b_o_der_array += np.matmul(arg_o.T, self.o_der_array[i])
+            self.b_p_der_array += np.matmul(arg_p.T, self.p_der_array[i])
+
+    def calc_h1_o_y(self, timestep):
+        return np.diagflat(np.apply_along_axis(th, 0, self.c[timestep]))
+
+    def calc_h1_p_y(self):
+        return np.mamtul(np.matmul(self.diag_o, self.diag_th_c1_der), self.diag_i)
+
+    # calc necessary yakobians:
+    def calc_h1_i_y(self):
+        return np.matmul(np.matmul(self.diag_o, self.diag_th_c1_der), self.diag_p)
+
+    def calc_h1_f_y(self):
+        return np.matmul(np.matmul(self.diag_o, self.diag_th_c1_der), self.diag_c)
 
     def calc_h_c_y(self, timestep):
         c_t = self.c[timestep - 1]
