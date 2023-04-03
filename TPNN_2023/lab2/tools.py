@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from abc import ABC, abstractmethod
 
@@ -45,12 +47,27 @@ class Optimizer(ABC):
 
 class Adam(Optimizer):
     def __init__(self):
-        self.p1 = 0.9
-        self.p2 = 0.99
+        self.betta1 = 0.9
+        self.betta2 = 0.99
         self.epsilon = 0.000001
 
-        self.r_t = 0    # zero on the first step
-        self.s_t = 0
+        self.m_t = 0    # zero on the first step
+        self.v_t = 0
+        self.step = 1
 
     def get_coefficient(self, full_gradient_norm: float):
-        pass
+        assert full_gradient_norm > 0
+
+        next_m_t = self.m_t * self.betta1 + (1 - self.betta1) * full_gradient_norm
+        next_v_t = self.v_t * self.betta2 + (1 - self.betta2) * (full_gradient_norm ** 2)
+
+        arg1 = self.m_t / (1 - self.betta1)
+        arg2 = self.v_t / (1 - self.betta2)
+
+        coefficient = self.step * arg1 / (math.sqrt(arg2) + self.epsilon)
+
+        self.step += 1
+        self.m_t = next_m_t
+        self.v_t = next_v_t
+
+        return coefficient
