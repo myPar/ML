@@ -39,6 +39,10 @@ def default_init(array_shape: tuple):
     return uniform_init((-0.5, 0.5), array_shape)
 
 
+def test_init(array_shape: tuple):
+    return np.ones(array_shape)
+
+
 class Optimizer(ABC):
     @abstractmethod
     def get_coefficient(self, *net_parameters):  # returns gradient coefficient and updates optimizer parameters
@@ -56,7 +60,7 @@ class Adam(Optimizer):
         self.step = 1
 
     def get_coefficient(self, full_gradient_norm: float):
-        assert full_gradient_norm > 0
+        assert full_gradient_norm >= 0
 
         next_m_t = self.m_t * self.betta1 + (1 - self.betta1) * full_gradient_norm
         next_v_t = self.v_t * self.betta2 + (1 - self.betta2) * (full_gradient_norm ** 2)

@@ -1,6 +1,5 @@
 import math
 from abc import ABC, abstractmethod
-import numpy as np
 from enum import IntEnum, StrEnum
 
 from TPNN_2023.lab2.activation_functions import *
@@ -28,7 +27,7 @@ class Layer(ABC):
         pass
 
     @abstractmethod
-    def print_layer_config(self, config_level: int):
+    def print_layer_config(self, config_level: int, offset: str):
         pass
 
     @abstractmethod
@@ -75,10 +74,11 @@ class Dense(Layer):
     def calc_output(self, input_vector):
         # input vector - vector of output from the previous layer
         assert input_vector.shape == (self.weight_matrix.shape[1],)
-        assert self.activations.shape == (self.neuron_count,)
 
         self.input_vector = input_vector
         self.activations = np.dot(self.weight_matrix, input_vector) + self.biases
+        assert self.activations.shape == (self.neuron_count,)
+
         self.z_array = np.apply_along_axis(func1d=self.act_function, axis=0, arr=self.activations)
 
         return self.z_array
@@ -127,20 +127,20 @@ class Dense(Layer):
 
         return z_prev_grad_array
 
-    def print_layer_config(self, config_level):
-        print("Dense layer:")
-        print("  neuron count=" + str(self.neuron_count))
+    def print_layer_config(self, config_level, offset: str):
+        print(offset + "Dense layer:")
+        print(offset + "  neuron count=" + str(self.neuron_count))
 
         if config_level >= ConfigLevel.MEDIUM:
-            print("weight matrix:")
-            print_matrix(matrix=self.weight_matrix, offset="  ")
-            print("biases:")
-            print_matrix(self.biases, offset="  ")
+            print(offset + "weight matrix:")
+            print_matrix(matrix=self.weight_matrix, offset=offset + "  ")
+            print(offset + "biases:")
+            print_matrix(self.biases, offset=offset+"  ")
         if config_level >= ConfigLevel.HIGH:
-            print("weigh's gradient:")
-            print_matrix(self.weights_grad_matrix, offset="  ")
-            print("biases gradient:")
-            print_matrix(self.biases_grad_array, offset="  ")
+            print(offset + "weigh's gradient:")
+            print_matrix(self.weights_grad_matrix, offset=offset + "  ")
+            print(offset + "biases gradient:")
+            print_matrix(self.biases_grad_array, offset=offset + "  ")
 
     def get_layer_type(self):
         return LayerType.DENSE
@@ -157,6 +157,8 @@ class Dense(Layer):
 
         self.weight_matrix = init_strategy(weight_matrix_shape)
         self.biases = init_strategy(biases_shape)
+        self.biases_grad_array = np.zeros(biases_shape)
+        self.weights_grad_matrix = np.zeros(weight_matrix_shape)
 
 
 class Softmax(Layer):
@@ -173,12 +175,13 @@ class Softmax(Layer):
         return exp_arr / np.sum(exp_arr)
 
     def learn_step(self, one_hot_enc_vector):
-        assert np.sum(one_hot_enc_vector) == 1 and np.prod(one_hot_enc_vector) == 1
+        assert np.sum(one_hot_enc_vector) == 1
 
         return self.input_vector - one_hot_enc_vector
 
-    def print_layer_config(self, config_level: int):
-        pass
+    def print_layer_config(self, config_level: int, offset: str):
+        print(offset + "Softmax layer:")
+        print(offset + "dimension: " + str(self.neuron_count))
 
     def get_layer_type(self):
         return LayerType.SOFTMAX
@@ -222,12 +225,17 @@ class Net:
         last_idx = self.layers_count - 1
         z_grad_array = None
 
-        for i in range(last_idx, -1, 0):
+        for i in range(last_idx, -1, -1):
             cur_layer = self.layers[i]
 
             layer_type = cur_layer.get_layer_type()
-            if i == last_idx and layer_type == LayerType.SOFTMAX:  # last layer is softmax layer
-                z_grad_array = cur_layer.learn_step(target_vector)
+            if i == last_idx:
+                if layer_type == LayerType.SOFTMAX:
+                    z_grad_array = cur_layer.learn_step(target_vector)  # input is one-hot-enc vector
+                elif layer_type == LayerType.DENSE:
+                    z_grad_array = cur_layer.learn_step(predicted - target_vector)  # input - z_grad_array for the last layer
+                else:
+                    assert False
             elif layer_type == LayerType.DENSE:
                 z_grad_array = cur_layer.learn_step(z_grad_array)
             else:
@@ -261,7 +269,7 @@ class Net:
 
         for layer in self.layers:
             result += layer.calc_full_gradient_norm() ** 2
-        assert result > 0
+        assert result >= 0
 
         return math.sqrt(result)
 
@@ -281,7 +289,7 @@ class Net:
 
             ### init input shape for the current layer
             if i == 0:
-                assert cur_layer.get_layer_type == LayerType.DENSE
+                assert cur_layer.get_layer_type() == LayerType.DENSE
                 cur_layer.set_input_shape(input_shape)
             else:
                 prev_layer = self.layers[i - 1]
@@ -290,4 +298,15 @@ class Net:
                 cur_layer.set_input_shape(cur_input_shape)
             ### init layer parameters
             cur_layer.init_layer(init_strategy)
+
+    def print_net_config(self, level: ConfigLevel):
+        assert self.layers_count == len(self.layers)
+        print("layers count=" + str(self.layers_count))
+        print("layers:")
+
+        for i in range(len(self.layers)):
+            cur_layer = self.layers[i]
+            print("[" + str(i) + "]")
+            cur_layer.print_layer_config(config_level=level, offset="  ")
+
 
