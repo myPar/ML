@@ -49,6 +49,11 @@ class Optimizer(ABC):
         pass
 
 
+class Default(Optimizer):
+    def get_coefficient(self, *net_parameters):
+        return 1
+
+
 class Adam(Optimizer):
     def __init__(self):
         self.betta1 = 0.9

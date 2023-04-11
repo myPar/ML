@@ -233,7 +233,8 @@ class Net:
                 if layer_type == LayerType.SOFTMAX:
                     z_grad_array = cur_layer.learn_step(target_vector)  # input is one-hot-enc vector
                 elif layer_type == LayerType.DENSE:
-                    z_grad_array = cur_layer.learn_step(predicted - target_vector)  # input - z_grad_array for the last layer
+                    # input - z_grad_array for the last layer (loss - mse)
+                    z_grad_array = cur_layer.learn_step((2 / len(target_vector)) * (predicted - target_vector))
                 else:
                     assert False
             elif layer_type == LayerType.DENSE:
@@ -261,8 +262,25 @@ class Net:
                 sample_loss = self.train_step(input_vector=sample, target_vector=target_sample, opt=optimizer, lr=learning_rate)
                 epoch_losses.append(sample_loss)
             epoch_losses = np.array(epoch_losses)
+            cost = np.average(epoch_losses)
+            print("loss=" + str(cost))
 
-            self.loss_list.append(np.average(epoch_losses))
+            self.loss_list.append(cost)
+
+    def test(self, input_test_data, target_test_data, loss) -> float:   # returns average loss of predictions
+        samples_count = len(input_test_data)
+        assert samples_count == len(target_test_data)
+        losses = []
+
+        for i in range(samples_count):
+            sample = input_test_data[i]
+            target_sample = target_test_data[i]
+
+            output = self.calc_output(sample)
+            sample_loss = loss(output, target_sample)
+            losses.append(sample_loss)
+
+        return np.average(np.array(losses))
 
     def calc_net_gradients_norm(self):
         result = 0
