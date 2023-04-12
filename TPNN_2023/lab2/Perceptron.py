@@ -164,20 +164,20 @@ class Dense(Layer):
 class Softmax(Layer):
     def __init__(self, neuron_count):
         self.neuron_count = neuron_count
-        self.input_vector = None
+        self.output_vector = None
 
     def calc_output(self, input_vector):
         assert input_vector.shape == (self.neuron_count,)
-        self.input_vector = input_vector
 
         exp_arr = np.exp(input_vector)
+        self.output_vector = exp_arr / np.sum(exp_arr)
 
-        return exp_arr / np.sum(exp_arr)
+        return self.output_vector
 
     def learn_step(self, one_hot_enc_vector):
         assert np.sum(one_hot_enc_vector) == 1
 
-        return self.input_vector - one_hot_enc_vector
+        return self.output_vector - one_hot_enc_vector
 
     def print_layer_config(self, config_level: int, offset: str):
         print(offset + "Softmax layer:")
