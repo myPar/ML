@@ -32,7 +32,7 @@ def get_predictions(threshold: float, predicted):   # input: 2d array of data
 
 # calc TP or TN (regulated by indicating positive or negative label)
 def calc_outcome(label, predicted_data, actual_data): # both data arrays are formatted
-    assert np.sum(label) == 1
+    assert np.sum(label) == 1 or len(label.shape) == 1
     assert predicted_data.shape == actual_data.shape
     outcome = 0
 
@@ -80,10 +80,11 @@ def accuracy(positive_label, negative_label, predicted_data, actual_data):
     return (true_positive + true_negative) / predicted_data.shape[0]
 
 
-def precision(negative_label, predicted_data, actual_data):
+def precision(positive_label, negative_label, predicted_data, actual_data):
     actual_negative_count = calc_actual_class_count(negative_label, actual_data)
+    true_positive = calc_outcome(positive_label, predicted_data, actual_data)
     true_negative = calc_outcome(negative_label, predicted_data, actual_data)
 
     assert true_negative <= actual_negative_count
 
-    return (actual_negative_count - true_negative) / actual_negative_count
+    return true_positive / (true_positive + (actual_negative_count - true_negative))
