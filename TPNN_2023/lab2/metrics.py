@@ -14,7 +14,7 @@ def mse(predicted_vector, dst_vector) -> float:  # squared error
     return np.sum(((predicted_vector - dst_vector) ** 2)) / dim
 
 
-### classification metricx
+### classification metricx:
 def get_predictions(threshold: float, predicted):   # input: 2d array of data
     result = np.zeros(predicted.shape)
 
@@ -86,5 +86,8 @@ def precision(positive_label, negative_label, predicted_data, actual_data):
     true_negative = calc_outcome(negative_label, predicted_data, actual_data)
 
     assert true_negative <= actual_negative_count
+
+    if (true_positive + (actual_negative_count - true_negative)) == 0:
+        return None
 
     return true_positive / (true_positive + (actual_negative_count - true_negative))
