@@ -39,17 +39,17 @@ class RNNlayer(Layer):
         self.b_h = default_init(array_shape=(neuron_count, 1))              # vector-columns
         self.b_o = default_init(array_shape=(output_vector_shape[0], 1))    #
         # caching parameters
-        self.output_vectors = None
+        self.output_vectors = np.zeros((timestamps, output_vector_shape[0], 1))
         self.input_vectors = None
         self.dst_vectors = None
-        self.h_vectors = np.zeros((timestamps, neuron_count))
-        self.h_args = None
+        self.h_vectors = np.zeros((timestamps, neuron_count, 1))
+        self.h_args = np.zeros((timestamps, neuron_count, 1))
         # gradients (of net parameters)
-        self.W_grad = None
-        self.U_grad = None
-        self.V_grad = None
-        self.b_h_grad = None
-        self.b_o_grad = None
+        self.W_grad = np.zeros(self.W.shape)
+        self.U_grad = np.zeros(self.U.shape)
+        self.V_grad = np.zeros(self.V.shape)
+        self.b_h_grad = np.zeros(self.b_h.shape)
+        self.b_o_grad = np.zeros(self.b_o.shape)
         # gradients (for calculation)
         self.o_grad_array = np.zeros((timestamps, self.output_vector_shape[0], 1))
         self.h_grad_array = np.zeros((timestamps, self.neuron_count, 1))
@@ -73,8 +73,10 @@ class RNNlayer(Layer):
             x_t = input_tensor[timestamp]
             arg = np.matmul(self.U, x_t) + np.matmul(self.W, self.h_vectors[timestamp - 1]) + self.b_h
             self.h_args[timestamp] = arg
-            self.h_vectors[timestamp] = np.apply_along_axis(func1d=self.activation, axis=0, arg=arg)
+            self.h_vectors[timestamp] = np.apply_along_axis(func1d=self.activation, axis=0, arr=arg)
             self.output_vectors[timestamp] = np.matmul(self.V, self.h_vectors[timestamp]) + self.b_o
+
+        return self.output_vectors
 
     def learn_step(self, arg_vector, is_last_layer: bool):  # returns x_grad array
         assert arg_vector.shape == (self.timestamps, self.output_vector_shape[0], 1)
@@ -154,8 +156,6 @@ class RNNlayer(Layer):
             print(offset + "biases:")
             print(2 * offset + "b_h:")
             print_matrix(self.b_h, offset=2 * offset + "  ")
-
-            print(offset + "biases:")
             print(2 * offset + "b_o:")
             print_matrix(self.b_o, offset=2 * offset + "  ")
 
@@ -168,11 +168,9 @@ class RNNlayer(Layer):
             print(2 * offset + "V gradient:")
             print_matrix(matrix=self.V_grad, offset=2 * offset + "  ")
 
-            print(offset + "biases:")
+            print(offset + "bias's gradients:")
             print(2 * offset + "b_h gradient:")
             print_matrix(self.b_h_grad, offset=2 * offset + "  ")
-
-            print(offset + "biases:")
             print(2 * offset + "b_o gradient:")
             print_matrix(self.b_o_grad, offset=2 * offset + "  ")
 
@@ -193,11 +191,11 @@ class RNNlayer(Layer):
         assert self.b_o_grad is not None
 
         l = lambda x: x * update_coefficient
-        self.W += np.apply_along_axis(func1d=l, axis=0, arr=self.W_grad)
-        self.U += np.apply_along_axis(func1d=l, axis=0, arr=self.U_grad)
-        self.V += np.apply_along_axis(func1d=l, axis=0, arr=self.V_grad)
-        self.b_h += np.apply_along_axis(func1d=l, axis=0, arr=self.b_h_grad)
-        self.b_o += np.apply_along_axis(func1d=l, axis=0, arr=self.b_o_grad)
+        self.W -= np.apply_along_axis(func1d=l, axis=0, arr=self.W_grad)
+        self.U -= np.apply_along_axis(func1d=l, axis=0, arr=self.U_grad)
+        self.V -= np.apply_along_axis(func1d=l, axis=0, arr=self.V_grad)
+        self.b_h -= np.apply_along_axis(func1d=l, axis=0, arr=self.b_h_grad)
+        self.b_o -= np.apply_along_axis(func1d=l, axis=0, arr=self.b_o_grad)
 
     def calc_full_gradient_norm(self):
         assert self.W_grad is not None
@@ -239,7 +237,7 @@ class RNNnet:
         input_grad_array = dst_tensor
 
         # back prop (gradients calculation):
-        for layer_idx in range(self.layers_count - 1, -1, 1):
+        for layer_idx in range(self.layers_count - 1, -1, -1):
             is_last_layer = layer_idx == self.layers_count - 1
 
             input_grad_array = self.layers[layer_idx].learn_step(input_grad_array, is_last_layer)
@@ -280,3 +278,27 @@ class RNNnet:
 
         return math.sqrt(result)
 
+    def print_net_config(self, level: ConfigLevel):
+        assert self.layers_count == len(self.layers)
+        print("layers count=" + str(self.layers_count))
+        print("layers:")
+
+        for i in range(len(self.layers)):
+            cur_layer = self.layers[i]
+            print("[" + str(i) + "]")
+            cur_layer.print_layer_config(config_level=level, offset="  ")
+
+    def test(self, input_test_data, target_test_data, loss) -> float:   # returns average loss of predictions
+        samples_count = len(input_test_data)
+        assert samples_count == len(target_test_data)
+        losses = []
+
+        for i in range(samples_count):
+            sample = input_test_data[i]
+            target_sample = target_test_data[i]
+
+            output = self.calc_output(sample)
+            sample_loss = loss(output, target_sample)
+            losses.append(sample_loss)
+
+        return np.average(np.array(losses))
