@@ -209,6 +209,15 @@ class RNNlayer(Layer):
                                                        self.b_o_grad.flatten()), axis=0)
         return np.linalg.norm(concatenated_gradients_array)
 
+    def reset_timestamps(self, timestamps):
+        assert timestamps > 0
+        self.timestamps = timestamps
+        self.output_vectors = np.zeros((timestamps, self.output_vector_shape[0], 1))
+        self.h_vectors = np.zeros((timestamps, self.neuron_count, 1))
+        self.h_args = np.zeros((timestamps, self.neuron_count, 1))
+        self.o_grad_array = np.zeros((timestamps, self.output_vector_shape[0], 1))
+        self.h_grad_array = np.zeros((timestamps, self.neuron_count, 1))
+
 
 class RNNnet:
     def __init__(self):
@@ -302,3 +311,7 @@ class RNNnet:
             losses.append(sample_loss)
 
         return np.average(np.array(losses))
+
+    def reset_layers_timestamps(self, timestamps):
+        for layer in self.layers:
+            layer.reset_timestamps(timestamps)
