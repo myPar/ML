@@ -43,6 +43,7 @@ class RNNlayer(Layer):
         self.input_vectors = None
         self.dst_vectors = None
         self.h_vectors = np.zeros((timestamps, neuron_count, 1))
+        self.o_vectors = np.zeros((timestamps, self.output_vector_shape[0], 1))
         self.h_args = np.zeros((timestamps, neuron_count, 1))
         # gradients (of net parameters)
         self.W_grad = np.zeros(self.W.shape)
@@ -58,6 +59,7 @@ class RNNlayer(Layer):
         # input_tensor.shape == (timestamps, input_vector.shape[0])
         assert len(input_tensor.shape) == 3 and input_tensor.shape[0] == self.timestamps \
                and input_tensor.shape[1] == self.input_vector_shape[0] and input_tensor.shape[2] == 1
+
         # cache input vector
         self.input_vectors = input_tensor
 
@@ -66,7 +68,9 @@ class RNNlayer(Layer):
         arg = np.matmul(self.U, x_0) + self.b_h
         self.h_args[0] = arg
         self.h_vectors[0] = np.apply_along_axis(func1d=self.activation, axis=0, arr=arg)
-        self.output_vectors[0] = np.matmul(self.V, self.h_vectors[0]) + self.b_o
+        self.o_vectors[0] = np.matmul(self.V, self.h_vectors[0]) + self.b_o
+        self.output_vectors[0] = np.apply_along_axis(func1d=self.activation, axis=0,
+                                                     arr=self.o_vectors[0])
 
         # init remaining blocks
         for timestamp in range(1, self.timestamps, 1):
@@ -74,7 +78,9 @@ class RNNlayer(Layer):
             arg = np.matmul(self.U, x_t) + np.matmul(self.W, self.h_vectors[timestamp - 1]) + self.b_h
             self.h_args[timestamp] = arg
             self.h_vectors[timestamp] = np.apply_along_axis(func1d=self.activation, axis=0, arr=arg)
-            self.output_vectors[timestamp] = np.matmul(self.V, self.h_vectors[timestamp]) + self.b_o
+            self.o_vectors[timestamp] = np.matmul(self.V, self.h_vectors[timestamp]) + self.b_o
+            self.output_vectors[timestamp] = np.apply_along_axis(func1d=self.activation, axis=0,
+                                                                 arr=self.o_vectors[timestamp])
 
         return self.output_vectors
 
@@ -84,14 +90,16 @@ class RNNlayer(Layer):
         # caching calculation arg
         diag_der_array = np.zeros((self.timestamps, self.neuron_count, self.neuron_count))
 
-        if is_last_layer:
-            # calc o^t gradients
-            for timestamp in range(self.timestamps):
+        # calc o^t gradients
+        for timestamp in range(self.timestamps):
+            diag_o_der_array = np.diag(np.apply_along_axis(func1d=get_der(self.activation), axis=0,
+                                    arr=self.o_vectors[timestamp].reshape(self.output_vector_shape[0], )))
+            if is_last_layer:
                 # arg vector - is dst_vector
-                self.o_grad_array[timestamp] = self.output_vectors[timestamp] - arg_vector[timestamp]
-        else:
-            # arg vector - is input_grad_array vector of the next layer
-            self.o_grad_array = arg_vector
+                output_gradient_vector = self.output_vectors[timestamp] - arg_vector[timestamp]
+                self.o_grad_array[timestamp] = np.matmul(diag_o_der_array, output_gradient_vector)
+            else:
+                self.o_grad_array[timestamp] = np.matmul(diag_o_der_array, arg_vector[timestamp])
 
         # calc h^t gradient for last timestamp
         tau = self.timestamps - 1
@@ -116,7 +124,10 @@ class RNNlayer(Layer):
 
         for timestamp in range(self.timestamps):
             b_h_grad += np.matmul(diag_der_array[timestamp], self.h_grad_array[timestamp])
-            b_o_grad += self.o_grad_array[timestamp]
+            diag_arg_b_o = np.diag(np.apply_along_axis(func1d=get_der(self.activation), axis=0,
+                                arr=self.o_vectors[timestamp].reshape(self.output_vector_shape[0], )))
+
+            b_o_grad += np.matmul(diag_arg_b_o, self.o_grad_array[timestamp])
 
             if timestamp == 0:
                 h_prev = np.zeros((self.neuron_count, 1))
@@ -278,11 +289,26 @@ class RNNnet:
 
             self.loss_list.append(cost)
 
+    # changes timestamp is needed
+    def train_on_batch(self, in_batch_data, target_batch_data, optimizer: Optimizer, loss, lr: float):
+        assert len(in_batch_data) == len(target_batch_data)
+        self.loss_function = loss
+        timestamps = in_batch_data.shape[0]
+
+        if in_batch_data.shape[0] != self.layers[0].timestamps:
+            self.reset_layers_timestamps(timestamps)
+            print("WARNING: timestamps value is reset on - " + str(timestamps))
+
+        return self.train_step(in_batch_data, target_batch_data, optimizer, lr)
+
     def calc_net_gradient_norm(self):
         result = 0
 
         for layer in self.layers:
             result += layer.calc_full_gradient_norm() ** 2  # frobenius norm is used
+        if result is None:
+            print("WARNING: gradient norm is none")
+            result = 1
         assert result >= 0
 
         return math.sqrt(result)
@@ -311,6 +337,24 @@ class RNNnet:
             losses.append(sample_loss)
 
         return np.average(np.array(losses))
+
+    def test_on_sample(self, input_test_sample, output_test_sample, loss) -> float:
+        assert len(input_test_sample) == len(output_test_sample)
+
+        output = self.calc_output(input_test_sample)
+        sample_loss = loss(output, output_test_sample)
+
+        return sample_loss
+
+    def predict(self, input_data):
+        samples_count = len(input_data)
+        result = []
+
+        for i in range(samples_count):
+            sample = input_data[i]
+            result.append(self.calc_output(sample))
+
+        return np.array(result)
 
     def reset_layers_timestamps(self, timestamps):
         for layer in self.layers:

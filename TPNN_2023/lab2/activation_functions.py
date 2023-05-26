@@ -1,5 +1,7 @@
 import numpy as np
 
+max_exp_arg = 35
+
 
 def ReLU(x):
     result = np.zeros((len(x),))
@@ -18,7 +20,15 @@ def ident(x):
 
 
 def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
+    result = np.zeros(x.shape)
+
+    for i in range(len(x)):
+        if abs(x[i]) > max_exp_arg and x[i] < 0:
+            result[i] = 1 / np.exp(max_exp_arg)
+        else:
+            result[i] = 1 / (1 + np.exp(-x[i]))
+
+    return result
 
 
 def th(x):
