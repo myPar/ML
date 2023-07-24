@@ -7,11 +7,41 @@ def log_loss(predicted_vector, dst_vector) -> float:
     return -np.sum(np.log(predicted_vector) * dst_vector)
 
 
+# mean squared error
 def mse(predicted_vector, dst_vector) -> float:  # squared error
     dim = len(dst_vector)
     assert len(predicted_vector) == len(dst_vector)
 
     return np.sum(((predicted_vector - dst_vector) ** 2)) / dim
+
+
+# mead absolute error
+def mae(predicted_vector, dst_vector) -> float:
+    dim = len(dst_vector)
+    assert len(predicted_vector) == dim
+
+    return np.sum(np.abs(predicted_vector - dst_vector)) / dim
+
+
+def set_ones(x):
+    result = np.array(x.shape)
+
+    for i in range(len(x)):
+        if x[i]:    # True: 1
+            result[i] = 1
+        else:       # False: -1
+            result[i] = -1
+
+    return result
+
+
+def get_mae_gradient(predicted_vector, dst_vector):
+    dim = len(dst_vector)
+    assert len(predicted_vector) == dim
+
+    markers = predicted_vector > dst_vector
+
+    return np.apply_along_axis(func1d=set_ones, arr=markers, axis=0)
 
 
 ### classification metricx:

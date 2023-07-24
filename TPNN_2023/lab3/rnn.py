@@ -15,7 +15,21 @@ import numpy as np
 
 from TPNN_2023.lab2.Perceptron import Layer, ConfigLevel
 from TPNN_2023.lab2.activation_functions import get_der
-from TPNN_2023.lab2.tools import default_init, print_matrix, Optimizer
+from TPNN_2023.lab2.metrics import mse, mae, get_mae_gradient
+from TPNN_2023.lab2.tools import default_init, print_matrix, Optimizer, uniform_init
+from enum import Enum
+
+
+class LOSS_TYPE(Enum):
+    MSE = 1
+    MAE = 2
+
+
+def get_loss_function(loss_type: LOSS_TYPE):
+    if loss_type == LOSS_TYPE.MSE:
+        return mse
+    if loss_type == LOSS_TYPE.MAE:
+        return mae
 
 
 class RNNlayer(Layer):
@@ -25,7 +39,7 @@ class RNNlayer(Layer):
         assert neuron_count > 0
         assert len(output_vector_shape) == 2 and output_vector_shape[0] > 0 and output_vector_shape[1] == 1
         assert len(input_vector_shape) == 2 and input_vector_shape[0] > 0 and input_vector_shape[1] == 1
-
+        self.loss_type = LOSS_TYPE.MSE  # default
         # init parameters
         self.timestamps = timestamps
         self.neuron_count = neuron_count
@@ -54,6 +68,13 @@ class RNNlayer(Layer):
         # gradients (for calculation)
         self.o_grad_array = np.zeros((timestamps, self.output_vector_shape[0], 1))
         self.h_grad_array = np.zeros((timestamps, self.neuron_count, 1))
+
+    def init_parameters(self, interval: tuple):
+        self.W = uniform_init(interval=interval, array_shape=(self.neuron_count, self.neuron_count))
+        self.U = uniform_init(interval=interval, array_shape=(self.neuron_count, self.input_vector_shape[0]))
+        self.V = uniform_init(interval=interval, array_shape=(self.output_vector_shape[0], self.neuron_count))
+        self.b_h = uniform_init(interval=interval, array_shape=(self.neuron_count, 1))              # vector-columns
+        self.b_o = uniform_init(interval=interval, array_shape=(self.output_vector_shape[0], 1))    #
 
     def calc_output(self, input_tensor):
         # input_tensor.shape == (timestamps, input_vector.shape[0])
@@ -95,8 +116,13 @@ class RNNlayer(Layer):
             diag_o_der_array = np.diag(np.apply_along_axis(func1d=get_der(self.activation), axis=0,
                                     arr=self.o_vectors[timestamp].reshape(self.output_vector_shape[0], )))
             if is_last_layer:
-                # arg vector - is dst_vector
-                output_gradient_vector = self.output_vectors[timestamp] - arg_vector[timestamp]
+                if self.loss_type == LOSS_TYPE.MSE:
+                    # arg vector - is dst_vector
+                    output_gradient_vector = self.output_vectors[timestamp] - arg_vector[timestamp]
+                elif self.loss_type == LOSS_TYPE.MAE:
+                    output_gradient_vector = get_mae_gradient(self.output_vectors[timestamp], arg_vector[timestamp])
+                else:
+                    assert False
                 self.o_grad_array[timestamp] = np.matmul(diag_o_der_array, output_gradient_vector)
             else:
                 self.o_grad_array[timestamp] = np.matmul(diag_o_der_array, arg_vector[timestamp])
@@ -235,7 +261,15 @@ class RNNnet:
         self.layers = []
         self.layers_count = 0
         self.loss_list = []         # epoch's losses list
-        self.loss_function = None
+        self.loss_function = mse        #default
+        self.loss_type = LOSS_TYPE.MSE  # default
+
+    def set_loss(self, loss_type: LOSS_TYPE):
+        self.loss_function = get_loss_function(loss_type)
+        self.loss_type = loss_type
+
+        for layer in self.layers:
+            layer.loss_type = loss_type
 
     def add_layer(self, rnn_layer: RNNlayer):
         self.layers.append(rnn_layer)
@@ -247,7 +281,7 @@ class RNNnet:
         for layer in self.layers:
             result = layer.calc_output(result)
 
-        return result
+        return np.array(result)
 
     def train_step(self, input_tensor, dst_tensor, optimizer: Optimizer, lr: float) -> float:
         # forward prop
@@ -269,10 +303,9 @@ class RNNnet:
 
         return loss
 
-    def train(self, input_train_data, target_train_data, optimizer: Optimizer, loss, epoch_count: int, lr: float):
+    def train(self, input_train_data, target_train_data, optimizer: Optimizer, epoch_count: int, lr: float):
         samples_count = len(input_train_data)
         assert samples_count == len(target_train_data)
-        self.loss_function = loss
 
         for epoch in range(epoch_count):
             epoch_losses = []
@@ -290,14 +323,14 @@ class RNNnet:
             self.loss_list.append(cost)
 
     # changes timestamp is needed
-    def train_on_batch(self, in_batch_data, target_batch_data, optimizer: Optimizer, loss, lr: float):
+    def train_on_batch(self, in_batch_data, target_batch_data, optimizer: Optimizer, lr: float):
         assert len(in_batch_data) == len(target_batch_data)
-        self.loss_function = loss
+
         timestamps = in_batch_data.shape[0]
 
         if in_batch_data.shape[0] != self.layers[0].timestamps:
             self.reset_layers_timestamps(timestamps)
-            print("WARNING: timestamps value is reset on - " + str(timestamps))
+            #print("WARNING: timestamps value is reset on - " + str(timestamps))
 
         return self.train_step(in_batch_data, target_batch_data, optimizer, lr)
 
@@ -323,7 +356,7 @@ class RNNnet:
             print("[" + str(i) + "]")
             cur_layer.print_layer_config(config_level=level, offset="  ")
 
-    def test(self, input_test_data, target_test_data, loss) -> float:   # returns average loss of predictions
+    def test(self, input_test_data, target_test_data) -> float:   # returns average loss of predictions
         samples_count = len(input_test_data)
         assert samples_count == len(target_test_data)
         losses = []
@@ -333,16 +366,16 @@ class RNNnet:
             target_sample = target_test_data[i]
 
             output = self.calc_output(sample)
-            sample_loss = loss(output, target_sample)
+            sample_loss = self.loss_function(output, target_sample)
             losses.append(sample_loss)
 
         return np.average(np.array(losses))
 
-    def test_on_sample(self, input_test_sample, output_test_sample, loss) -> float:
+    def test_on_sample(self, input_test_sample, output_test_sample) -> float:
         assert len(input_test_sample) == len(output_test_sample)
 
         output = self.calc_output(input_test_sample)
-        sample_loss = loss(output, output_test_sample)
+        sample_loss = self.loss_function(output, output_test_sample)
 
         return sample_loss
 
@@ -359,3 +392,7 @@ class RNNnet:
     def reset_layers_timestamps(self, timestamps):
         for layer in self.layers:
             layer.reset_timestamps(timestamps)
+
+    def init_net_parameters(self, interval: tuple):
+        for layer in self.layers:
+            layer.init_parameters(interval)
